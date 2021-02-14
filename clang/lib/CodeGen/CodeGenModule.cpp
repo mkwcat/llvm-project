@@ -89,6 +89,8 @@ static CGCXXABI *createCXXABI(CodeGenModule &CGM) {
     return CreateItaniumCXXABI(CGM);
   case TargetCXXABI::Microsoft:
     return CreateMicrosoftCXXABI(CGM);
+  case TargetCXXABI::CodeWarrior:
+    return CreateItaniumCXXABI(CGM);
   }
 
   llvm_unreachable("invalid C++ ABI kind");

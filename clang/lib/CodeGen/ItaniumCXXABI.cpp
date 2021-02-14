@@ -583,6 +583,9 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
     }
     return new ItaniumCXXABI(CGM);
 
+    case TargetCXXABI::CodeWarrior:
+     return new ItaniumCXXABI(CGM);
+
   case TargetCXXABI::Microsoft:
     llvm_unreachable("Microsoft ABI is not Itanium-based");
   }

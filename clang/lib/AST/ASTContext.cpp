@@ -896,6 +896,8 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
     return CreateItaniumCXXABI(*this);
   case TargetCXXABI::Microsoft:
     return CreateMicrosoftCXXABI(*this);
+  case TargetCXXABI::CodeWarrior:
+    return CreateItaniumCXXABI(*this);
   }
   llvm_unreachable("Invalid CXXABI type!");
 }
@@ -10884,6 +10886,8 @@ MangleContext *ASTContext::createMangleContext(const TargetInfo *T) {
     return ItaniumMangleContext::create(*this, getDiagnostics());
   case TargetCXXABI::Microsoft:
     return MicrosoftMangleContext::create(*this, getDiagnostics());
+  case TargetCXXABI::CodeWarrior:
+    return ItaniumMangleContext::create(*this, getDiagnostics());
   }
   llvm_unreachable("Unsupported ABI");
 }
