@@ -1828,10 +1828,14 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
       CGM.getItaniumVTableContext()
           .getVTableLayout(VTableClass)
           .getAddressPoint(Base);
+
+  bool isCodeWarrior = getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int32Ty, 0),
     llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
-    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.AddressPointIndex),
+    llvm::ConstantInt::get(CGM.Int32Ty,
+                           AddressPoint.AddressPointIndex - (isCodeWarrior ? 2 : 0)),
   };
 
   return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,

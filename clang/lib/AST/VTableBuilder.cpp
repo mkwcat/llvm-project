@@ -1661,12 +1661,21 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
   if (Base.getBase() == MostDerivedClass)
     VBaseOffsetOffsets = Builder.getVBaseOffsetOffsets();
 
-  // Add the offset to top.
-  CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
-  Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
+  if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    // Add the RTTI.
+    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
 
-  // Next, add the RTTI.
-  Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
+    // Next add the offset to top.
+    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
+    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
+  } else {
+    // Add the offset to top.
+    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
+    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
+
+    // Next, add the RTTI.
+    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
+  }
 
   uint64_t AddressPoint = Components.size();
 
