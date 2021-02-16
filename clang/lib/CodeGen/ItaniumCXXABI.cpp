@@ -3001,6 +3001,7 @@ bool ItaniumCXXABI::NeedsVTTParameter(GlobalDecl GD) {
 
 namespace {
 class ItaniumRTTIBuilder {
+protected:
   CodeGenModule &CGM;  // Per-module state.
   llvm::LLVMContext &VMContext;
   const ItaniumCXXABI &CXXABI;  // Per-module state.

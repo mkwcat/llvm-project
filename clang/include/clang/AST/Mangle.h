@@ -268,21 +268,6 @@ public:
   explicit MacintoshMangleContext(ASTContext &C, DiagnosticsEngine &D)
       : ItaniumMangleContext(C, D) {}
 
-  virtual void mangleCXXVTable(const CXXRecordDecl *RD, raw_ostream &) = 0;
-  virtual void mangleCXXVTT(const CXXRecordDecl *RD, raw_ostream &) = 0;
-  virtual void mangleCXXCtorVTable(const CXXRecordDecl *RD, int64_t Offset,
-                                   const CXXRecordDecl *Type,
-                                   raw_ostream &) = 0;
-  virtual void mangleItaniumThreadLocalInit(const VarDecl *D,
-                                            raw_ostream &) = 0;
-  virtual void mangleItaniumThreadLocalWrapper(const VarDecl *D,
-                                               raw_ostream &) = 0;
-
-  virtual void mangleCXXCtorComdat(const CXXConstructorDecl *D,
-                                   raw_ostream &) = 0;
-  virtual void mangleCXXDtorComdat(const CXXDestructorDecl *D,
-                                   raw_ostream &) = 0;
-
   static MacintoshMangleContext *create(ASTContext &Context,
                                         DiagnosticsEngine &Diags);
 };
