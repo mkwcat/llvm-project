@@ -330,7 +330,7 @@ static void PrintNamedDecl(const NamedDecl *ND, const ASTContext &Ctx,
   Name << ND->getName();
   MangleClassTemplateSpecialization(ND, Ctx, Name);
   auto &NameStr = Name.str();
-  Out << NameStr;
+  Out << NameStr.length() << NameStr;
 }
 
 static void PrintNameSpace(const NamedDecl *ND, const ASTContext &Ctx,
@@ -340,7 +340,7 @@ static void PrintNameSpace(const NamedDecl *ND, const ASTContext &Ctx,
   Name << ND->getName();
   MangleClassTemplateSpecialization(ND, Ctx, Name);
   auto &NameStr = Name.str();
-  Out << NameStr<<"::";
+  Out << NameStr.length() << NameStr;
 }
 
 static void RecursiveDenest(const DeclContext *DCtx,
@@ -358,6 +358,7 @@ static void RecursiveDenest(const DeclContext *DCtx,
 		Out << 'Q' << Count;
 	}
 	if(DCtx->isNamespace()){
+        Out << 'Q' << Count;
 		PrintNameSpace(Named, Ctx, Out);
 	}else{
 		PrintNamedDecl(Named, Ctx, Out);
