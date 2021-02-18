@@ -239,6 +239,9 @@ void CodeGenModule::createCUDARuntime() {
 }
 
 void CodeGenModule::addReplacement(StringRef Name, llvm::Constant *C) {
+  llvm::dbgs() << "Enqueing replacement: " << Name << "\n";
+  auto *OldF = cast<llvm::Function>(C);
+  llvm::dbgs() << "  Old: " << OldF->getName() << "\n";
   Replacements[Name] = C;
 }
 
@@ -251,6 +254,12 @@ void CodeGenModule::applyReplacements() {
       continue;
     auto *OldF = cast<llvm::Function>(Entry);
     auto *NewF = dyn_cast<llvm::Function>(Replacement);
+
+    if (OldF == NewF) {
+      llvm::dbgs() << "Old and new functions match.\n";
+      continue;
+    }
+
     if (!NewF) {
       if (auto *Alias = dyn_cast<llvm::GlobalAlias>(Replacement)) {
         NewF = dyn_cast<llvm::Function>(Alias->getAliasee());
@@ -263,6 +272,7 @@ void CodeGenModule::applyReplacements() {
     }
 
     // Replace old with new, but keep the old order.
+    llvm::dbgs() << "Mangled Name: " << MangledName << "\n";
     OldF->replaceAllUsesWith(Replacement);
     if (NewF) {
       NewF->removeFromParent();
