@@ -510,6 +510,12 @@ private:
 };
 
 class MacintoshCXXABI final : public ItaniumCXXABI {
+private:
+  llvm::Value *getDeletingDestructorParam(CodeGenFunction &CGF,
+                                          CXXDtorType Type) {
+    return llvm::ConstantInt::get(CGM.Int32Ty, Type == Dtor_Deleting ? 1 : 0, true);
+  }
+
 public:
   explicit MacintoshCXXABI(CodeGen::CodeGenModule &CGM)
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
@@ -524,8 +530,14 @@ public:
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
 
+  void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *DD,
+                                         CXXDtorType Type, bool ForVirtualBase,
+                                         bool Delegating, Address This,
+                                         QualType ThisTy) override;
+
 protected:
-  ItaniumMangleContext &getMangleContext() {
+  MacintoshMangleContext &getMangleContext() {
     return cast<MacintoshMangleContext>(CodeGen::CGCXXABI::getMangleContext());
   }
 };
@@ -4867,4 +4879,24 @@ void XLCXXABI::emitCXXStermFinalizer(const VarDecl &D, llvm::Function *dtorStub,
     CGM.AddCXXStermFinalizerToGlobalDtor(StermFinalizer, 65535);
   else
     CGM.AddCXXStermFinalizerEntry(StermFinalizer);
+}
+
+void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *DD,
+                                         CXXDtorType Type, bool ForVirtualBase,
+                                         bool Delegating, Address This,
+                                         QualType ThisTy) {
+  GlobalDecl GD(DD, Type);
+  llvm::Value *Deleting = getDeletingDestructorParam(CGF, Type);
+  QualType DeletingTy = getContext().getPointerType(getContext().IntTy);
+
+  CGCallee Callee;
+  if (getContext().getLangOpts().AppleKext &&
+      Type != Dtor_Base && DD->isVirtual())
+    Callee = CGF.BuildAppleKextVirtualDestructorCall(DD, Type, DD->getParent());
+  else
+    Callee = CGCallee::forDirect(CGM.getAddrOfCXXStructor(GD), GD);
+
+  CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
+                            DeletingTy, nullptr);
 }

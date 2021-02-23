@@ -625,9 +625,10 @@ void MacintoshMangleContextImpl::mangleThunk(const CXXMethodDecl *MD,
   mangleCXXName(MD, Out);
 }
 
-void MacintoshMangleContextImpl::mangleCXXDtorThunk(
-    const CXXDestructorDecl *DD, CXXDtorType Type,
-    const ThisAdjustment &ThisAdjustment, raw_ostream &Out) {
+void MacintoshMangleContextImpl::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
+                                                    CXXDtorType Type,
+                                                    const ThisAdjustment &ThisAdjustment,
+                                                    raw_ostream &Out) {
   //  <special-name> ::= T <call-offset> <base encoding>
   //                      # base is the nominal target function of thunk
   Out << "T";

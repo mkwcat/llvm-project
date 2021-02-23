@@ -26,6 +26,7 @@
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
@@ -1594,9 +1595,17 @@ namespace {
                                      bool ReturnAfterDelete) {
     llvm::BasicBlock *callDeleteBB = CGF.createBasicBlock("dtor.call_delete");
     llvm::BasicBlock *continueBB = CGF.createBasicBlock("dtor.continue");
-    llvm::Value *ShouldCallDelete
-      = CGF.Builder.CreateIsNull(ShouldDeleteCondition);
-    CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
+    llvm::Value *ShouldCallDelete;
+
+    if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+      ShouldCallDelete = CGF.Builder.CreateICmpSLE(ShouldDeleteCondition,
+                                                   llvm::Constant::getIntegerValue(ShouldDeleteCondition->getType(),
+                                                   llvm::APInt(32, 0)));
+      CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
+    } else {
+      ShouldCallDelete = CGF.Builder.CreateIsNull(ShouldDeleteCondition);
+      CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
+    }
 
     CGF.EmitBlock(callDeleteBB);
     const CXXDestructorDecl *Dtor = cast<CXXDestructorDecl>(CGF.CurCodeDecl);
@@ -1798,30 +1807,39 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
 
   // The deleting-destructor phase just needs to call the appropriate
   // operator delete that Sema picked up.
-  if (DtorType == Dtor_Deleting) {
-    assert(DD->getOperatorDelete() &&
-           "operator delete missing - EnterDtorCleanups");
-    if (CXXStructorImplicitParamValue) {
-      // If there is an implicit param to the deleting dtor, it's a boolean
-      // telling whether this is a deleting destructor.
-      if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
-        EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
-                                      /*ReturnAfterDelete*/true);
-      else
-        EHStack.pushCleanup<CallDtorDeleteConditional>(
-            NormalAndEHCleanup, CXXStructorImplicitParamValue);
-    } else {
-      if (DD->getOperatorDelete()->isDestroyingOperatorDelete()) {
-        const CXXRecordDecl *ClassDecl = DD->getParent();
-        EmitDeleteCall(DD->getOperatorDelete(),
-                       LoadThisForDtorDelete(*this, DD),
-                       getContext().getTagDeclType(ClassDecl));
-        EmitBranchThroughCleanup(ReturnBlock);
-      } else {
-        EHStack.pushCleanup<CallDtorDelete>(NormalAndEHCleanup);
-      }
+  if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (DtorType == Dtor_Deleting) {
+      assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
     }
-    return;
+    EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
+                                  /*ReturnAfterDelete*/true);
+  } else {
+    if (DtorType == Dtor_Deleting) {
+      assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
+      if (CXXStructorImplicitParamValue) {
+        // If there is an implicit param to the deleting dtor, it's a boolean
+        // telling whether this is a deleting destructor.
+        if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
+          EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
+                                        /*ReturnAfterDelete*/true);
+        else
+          EHStack.pushCleanup<CallDtorDeleteConditional>(
+              NormalAndEHCleanup, CXXStructorImplicitParamValue);
+      } else {
+        if (DD->getOperatorDelete()->isDestroyingOperatorDelete()) {
+          const CXXRecordDecl *ClassDecl = DD->getParent();
+          EmitDeleteCall(DD->getOperatorDelete(),
+                        LoadThisForDtorDelete(*this, DD),
+                        getContext().getTagDeclType(ClassDecl));
+          EmitBranchThroughCleanup(ReturnBlock);
+        } else {
+          EHStack.pushCleanup<CallDtorDelete>(NormalAndEHCleanup);
+        }
+      }
+      return;
+    }
   }
 
   const CXXRecordDecl *ClassDecl = DD->getParent();
