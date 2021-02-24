@@ -39,7 +39,7 @@ namespace Test2 {
 // CHECK-2-NEXT:   2 | void Test2::A::f()
 // CHECK-2-NEXT:   3 | void Test2::A::f() const
 // CHECK-2-NEXT:   4 | Test2::A *Test2::A::g(int)
-// CHECK-2-NEXT:   5 | Test2::A::~A() [complete]
+// CHECK-2-NEXT:   5 | Test2::A::~A() [universal]
 // CHECK-2-NEXT:   6 | void Test2::A::h()
 // CHECK-2-NEXT:   7 | Test2::A &Test2::A::operator=(const Test2::A &)
 //
@@ -47,7 +47,7 @@ namespace Test2 {
 // CHECK-2-NEXT:   0 | void Test2::A::f()
 // CHECK-2-NEXT:   1 | void Test2::A::f() const
 // CHECK-2-NEXT:   2 | Test2::A *Test2::A::g(int)
-// CHECK-2-NEXT:   3 | Test2::A::~A() [complete]
+// CHECK-2-NEXT:   3 | Test2::A::~A() [universal]
 // CHECK-2-NEXT:   4 | void Test2::A::h()
 // CHECK-2-NEXT:   5 | Test2::A &Test2::A::operator=(const Test2::A &)
 struct A {
