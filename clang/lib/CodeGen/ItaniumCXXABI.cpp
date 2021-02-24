@@ -512,8 +512,15 @@ private:
 class MacintoshCXXABI final : public ItaniumCXXABI {
 private:
   llvm::Value *getDeletingDestructorParam(CodeGenFunction &CGF,
+                                          const CXXDestructorDecl *DD,
                                           CXXDtorType Type) {
-    return llvm::ConstantInt::get(CGM.Int32Ty, Type == Dtor_Deleting ? 1 : 0, true);
+    int flag;
+    if (DD->isVirtual()) {
+      flag = 0;
+    } else {
+      flag = Type == Dtor_Deleting ? 1 : -1;
+    }
+    return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
   }
 
 public:
@@ -531,10 +538,16 @@ public:
   }
 
   void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
-                                         const CXXDestructorDecl *DD,
-                                         CXXDtorType Type, bool ForVirtualBase,
-                                         bool Delegating, Address This,
-                                         QualType ThisTy) override;
+                                           const CXXDestructorDecl *DD,
+                                           CXXDtorType Type, bool ForVirtualBase,
+                                           bool Delegating, Address This,
+                                           QualType ThisTy) override;
+
+  llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                                          const CXXDestructorDecl *Dtor,
+                                                          CXXDtorType DtorType,
+                                                          Address This,
+                                                          DeleteOrMemberCallExpr E) override;
 
 protected:
   MacintoshMangleContext &getMangleContext() {
@@ -4887,8 +4900,8 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                          bool Delegating, Address This,
                                          QualType ThisTy) {
   GlobalDecl GD(DD, Type);
-  llvm::Value *Deleting = getDeletingDestructorParam(CGF, Type);
-  QualType DeletingTy = getContext().getPointerType(getContext().IntTy);
+  llvm::Value *Deleting = getDeletingDestructorParam(CGF, DD, Type);
+  QualType DeletingTy = getContext().IntTy;
 
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
@@ -4899,4 +4912,36 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
 
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
+}
+
+llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                                        const CXXDestructorDecl *Dtor,
+                                                        CXXDtorType DtorType,
+                                                        Address This,
+                                                        DeleteOrMemberCallExpr E) {
+  auto *CE = E.dyn_cast<const CXXMemberCallExpr *>();
+  auto *D = E.dyn_cast<const CXXDeleteExpr *>();
+  assert((CE != nullptr) ^ (D != nullptr));
+  assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
+  assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
+
+  GlobalDecl GD(Dtor, DtorType);
+  llvm::Value *Deleting = getDeletingDestructorParam(CGF, DD, DtorType);
+  QualType DeletingTy = getContext().IntTy;
+
+  const CGFunctionInfo *FInfo =
+      &CGM.getTypes().arrangeCXXStructorDeclaration(GD);
+  llvm::FunctionType *Ty = CGF.CGM.getTypes().GetFunctionType(*FInfo);
+  CGCallee Callee = CGCallee::forVirtual(CE, GD, This, Ty);
+
+  QualType ThisTy;
+  if (CE) {
+    ThisTy = CE->getObjectType();
+  } else {
+    ThisTy = D->getDestroyedType();
+  }
+
+  CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
+                            DeletingTy, nullptr);
+  return nullptr;
 }
