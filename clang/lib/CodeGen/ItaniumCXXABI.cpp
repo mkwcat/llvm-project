@@ -520,6 +520,14 @@ public:
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
                       /*UseARMGuardVarABI=*/false) {}
 
+  void addImplicitStructorParams(CodeGenFunction &CGF,
+                                 QualType &ResTy,
+                                 FunctionArgList &Params) override;
+
+  AddedStructorArgCounts
+  buildStructorSignature(GlobalDecl GD,
+                         SmallVectorImpl<CanQualType> &ArgTys) override;
+
   void emitCXXStructor(GlobalDecl GD) override {
     llvm::Function *Fn = CGM.codegenCXXStructor(GD);
     CGM.maybeSetTrivialComdat(*GD.getDecl(), *Fn);
@@ -540,10 +548,6 @@ public:
                                          CXXDtorType DtorType,
                                          Address This,
                                          DeleteOrMemberCallExpr E) override;
-
-  CGCXXABI::AddedStructorArgCounts
-  buildStructorSignature(GlobalDecl GD,
-                         SmallVectorImpl<CanQualType> &ArgTys) override;
 
   /// Return whether the given global decl needs a VTT parameter, which it does
   /// if it's a base constructor or destructor with virtual bases.
@@ -4894,6 +4898,26 @@ void XLCXXABI::emitCXXStermFinalizer(const VarDecl &D, llvm::Function *dtorStub,
     CGM.AddCXXStermFinalizerToGlobalDtor(StermFinalizer, 65535);
   else
     CGM.AddCXXStermFinalizerEntry(StermFinalizer);
+}
+
+
+void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
+                                                QualType &ResTy,
+                                                FunctionArgList &Params) {
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(CGF.CurGD.getDecl());
+  assert(isa<CXXConstructorDecl>(MD) || isa<CXXDestructorDecl>(MD));
+
+  // Check if we need a dtor parameter as well.
+  if (isa<CXXDestructorDecl>(MD)) {
+    ASTContext &Context = getContext();
+
+    QualType T = Context.IntTy;
+    auto *VTTDecl = ImplicitParamDecl::Create(
+        Context, /*DC=*/nullptr, MD->getLocation(), &Context.Idents.get("int"),
+        T, ImplicitParamDecl::CXXVTT);
+    Params.insert(Params.begin() + 1, VTTDecl);
+    getStructorImplicitParamDecl(CGF) = VTTDecl;
+  }
 }
 
 CGCXXABI::AddedStructorArgCounts
