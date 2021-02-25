@@ -2498,6 +2498,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
   // entails copying one or more LLVM IR arguments into an alloca.  Don't push
   // any cleanups or do anything that might unwind.  We do that separately, so
   // we can push the cleanups in the correct order for the ABI.
+  llvm::outs() << FI.arg_size() << Args.size();
   assert(FI.arg_size() == Args.size() &&
          "Mismatch between function signature & arguments.");
   unsigned ArgNo = 0;
@@ -4559,6 +4560,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   SmallVector<CallLifetimeEnd, 2> CallLifetimeEndAfterCall;
 
   // Translate all of the arguments as necessary to match the IR lowering.
+  llvm::outs() << "arg_size: " << CallInfo.arg_size() << "size: " << CallArgs.size() << "\n";
   assert(CallInfo.arg_size() == CallArgs.size() &&
          "Mismatch between function signature & arguments.");
   unsigned ArgNo = 0;

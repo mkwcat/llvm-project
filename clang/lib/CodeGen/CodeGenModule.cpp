@@ -255,7 +255,7 @@ void CodeGenModule::applyReplacements() {
     auto *OldF = cast<llvm::Function>(Entry);
     auto *NewF = dyn_cast<llvm::Function>(Replacement);
 
-    if (OldF == NewF) {
+    if (OldF == NewF && getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
       llvm::dbgs() << "Old and new functions match.\n";
       continue;
     }

@@ -513,15 +513,7 @@ class MacintoshCXXABI final : public ItaniumCXXABI {
 private:
   llvm::Value *getDeletingDestructorParam(CodeGenFunction &CGF,
                                           const CXXDestructorDecl *DD,
-                                          CXXDtorType Type) {
-    int flag;
-    if (DD->isVirtual()) {
-      flag = 0;
-    } else {
-      flag = Type == Dtor_Deleting ? 1 : -1;
-    }
-    return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
-  }
+                                          CXXDtorType Type);
 
 public:
   explicit MacintoshCXXABI(CodeGen::CodeGenModule &CGM)
@@ -532,22 +524,32 @@ public:
     llvm::Function *Fn = CGM.codegenCXXStructor(GD);
     CGM.maybeSetTrivialComdat(*GD.getDecl(), *Fn);
   }
-
+  
   void EmitCXXConstructors(const CXXConstructorDecl *D) override {
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
 
-  void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
-                                           const CXXDestructorDecl *DD,
-                                           CXXDtorType Type, bool ForVirtualBase,
-                                           bool Delegating, Address This,
-                                           QualType ThisTy) override;
+  void EmitDestructorCall(CodeGenFunction &CGF,
+                          const CXXDestructorDecl *DD,
+                          CXXDtorType Type, bool ForVirtualBase,
+                          bool Delegating, Address This,
+                          QualType ThisTy) override;
 
-  llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
-                                                          const CXXDestructorDecl *Dtor,
-                                                          CXXDtorType DtorType,
-                                                          Address This,
-                                                          DeleteOrMemberCallExpr E) override;
+  llvm::Value *EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *Dtor,
+                                         CXXDtorType DtorType,
+                                         Address This,
+                                         DeleteOrMemberCallExpr E) override;
+
+  CGCXXABI::AddedStructorArgCounts
+  buildStructorSignature(GlobalDecl GD,
+                         SmallVectorImpl<CanQualType> &ArgTys) override;
+
+  /// Return whether the given global decl needs a VTT parameter, which it does
+  /// if it's a base constructor or destructor with virtual bases.
+  bool NeedsVTTParameter(GlobalDecl GD) override {
+    return false;
+  }
 
 protected:
   MacintoshMangleContext &getMangleContext() {
@@ -630,7 +632,7 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
     return new ItaniumCXXABI(CGM);
 
     case TargetCXXABI::CodeWarrior:
-     return new ItaniumCXXABI(CGM);
+     return new MacintoshCXXABI(CGM);
 
   case TargetCXXABI::Microsoft:
     llvm_unreachable("Microsoft ABI is not Itanium-based");
@@ -4894,6 +4896,22 @@ void XLCXXABI::emitCXXStermFinalizer(const VarDecl &D, llvm::Function *dtorStub,
     CGM.AddCXXStermFinalizerEntry(StermFinalizer);
 }
 
+CGCXXABI::AddedStructorArgCounts
+MacintoshCXXABI::buildStructorSignature(GlobalDecl GD,
+                                        SmallVectorImpl<CanQualType> &ArgTys) {
+  ASTContext &Context = getContext();
+
+  // All parameters are already in place except the dtor flag, which goes after 'this'.
+
+  // Check if we need to add a dtor parameter (which has type int).
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+  if (isa<CXXDestructorDecl>(MD)) {
+    ArgTys.insert(ArgTys.begin() + 1, Context.IntTy);
+    return AddedStructorArgCounts::prefix(1);
+  }
+  return AddedStructorArgCounts{};
+}
+
 void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                          const CXXDestructorDecl *DD,
                                          CXXDtorType Type, bool ForVirtualBase,
@@ -4902,6 +4920,8 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   GlobalDecl GD(DD, Type);
   llvm::Value *Deleting = getDeletingDestructorParam(CGF, DD, Type);
   QualType DeletingTy = getContext().IntTy;
+
+  llvm::outs() << "Creating Dtor" << DD->getNameAsString() << "\n";
 
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
@@ -4925,8 +4945,10 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
+  llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
+
   GlobalDecl GD(Dtor, DtorType);
-  llvm::Value *Deleting = getDeletingDestructorParam(CGF, DD, DtorType);
+  llvm::Value *Deleting = getDeletingDestructorParam(CGF, Dtor, DtorType);
   QualType DeletingTy = getContext().IntTy;
 
   const CGFunctionInfo *FInfo =
@@ -4944,4 +4966,21 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
   return nullptr;
+}
+
+llvm::Value *MacintoshCXXABI::getDeletingDestructorParam(CodeGenFunction &CGF,
+                                                         const CXXDestructorDecl *DD,
+                                                         CXXDtorType Type) {
+  int flag;
+  switch (Type) {
+  case Dtor_Deleting:
+    flag = 1;
+    break;
+  case Dtor_Complete:
+    flag = -1;
+    break;
+  case Dtor_Base:
+    flag = 0;
+  }
+  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
 }
