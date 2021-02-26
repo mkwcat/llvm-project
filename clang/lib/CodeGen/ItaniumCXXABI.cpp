@@ -511,9 +511,24 @@ private:
 
 class MacintoshCXXABI final : public ItaniumCXXABI {
 private:
-  llvm::Value *getDeletingDestructorParam(CodeGenFunction &CGF,
-                                          const CXXDestructorDecl *DD,
-                                          CXXDtorType Type);
+  llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
+                                             const CXXDestructorDecl *DD,
+                                             CXXDtorType Type) {
+  int flag;
+  switch (Type) {
+  case Dtor_Deleting:
+    flag = 1;
+    break;
+  case Dtor_Complete:
+    flag = -1;
+    break;
+  case Dtor_Base:
+    flag = 0;
+  case Dtor_Comdat:
+    llvm_unreachable("dtor comdat is unexpected");
+  }
+  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
+  }
 
 public:
   explicit MacintoshCXXABI(CodeGen::CodeGenModule &CGM)
@@ -548,6 +563,7 @@ public:
                                          CXXDtorType DtorType,
                                          Address This,
                                          DeleteOrMemberCallExpr E) override;
+
 
   /// Return whether the given global decl needs a VTT parameter, which it does
   /// if it's a base constructor or destructor with virtual bases.
@@ -635,8 +651,8 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
     }
     return new ItaniumCXXABI(CGM);
 
-    case TargetCXXABI::CodeWarrior:
-     return new MacintoshCXXABI(CGM);
+  case TargetCXXABI::CodeWarrior:
+    return new MacintoshCXXABI(CGM);
 
   case TargetCXXABI::Microsoft:
     llvm_unreachable("Microsoft ABI is not Itanium-based");
@@ -3130,11 +3146,6 @@ public:
       llvm::GlobalValue::VisibilityTypes Visibility,
       llvm::GlobalValue::DLLStorageClassTypes DLLStorageClass);
 };
-
-class MacintoshRTTIBuilder : public ItaniumRTTIBuilder {
-  /// BuildVTablePointer - Build the vtable pointer for the given type.
-  void BuildVTablePointer(const Type *Ty);
-};
 }
 
 llvm::GlobalVariable *ItaniumRTTIBuilder::GetAddrOfTypeName(
@@ -3433,15 +3444,20 @@ static bool CanUseSingleInheritance(const CXXRecordDecl *RD) {
 }
 
 void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
+  const bool isCodeWarriorABI = CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   // abi::__class_type_info.
   static const char * const ClassTypeInfo =
-    "_ZTVN10__cxxabiv117__class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv117__class_type_info" :
+                       "_ZTVN10__cxxabiv117__class_type_infoE";
   // abi::__si_class_type_info.
   static const char * const SIClassTypeInfo =
-    "_ZTVN10__cxxabiv120__si_class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv120__si_class_type_info" :
+                       "_ZTVN10__cxxabiv120__si_class_type_infoE";
   // abi::__vmi_class_type_info.
   static const char * const VMIClassTypeInfo =
-    "_ZTVN10__cxxabiv121__vmi_class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv121__vmi_class_type_info" :
+                       "_ZTVN10__cxxabiv121__vmi_class_type_infoE";
 
   const char *VTableName = nullptr;
 
@@ -3476,25 +3492,37 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   // FIXME: GCC treats block pointers as fundamental types?!
   case Type::BlockPointer:
     // abi::__fundamental_type_info.
-    VTableName = "_ZTVN10__cxxabiv123__fundamental_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv123__fundamental_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv123__fundamental_type_infoE";
     break;
 
   case Type::ConstantArray:
   case Type::IncompleteArray:
   case Type::VariableArray:
     // abi::__array_type_info.
-    VTableName = "_ZTVN10__cxxabiv117__array_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv117__array_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv117__array_type_infoE";
     break;
 
   case Type::FunctionNoProto:
   case Type::FunctionProto:
     // abi::__function_type_info.
-    VTableName = "_ZTVN10__cxxabiv120__function_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv120__function_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv120__function_type_infoE";
     break;
 
   case Type::Enum:
     // abi::__enum_type_info.
-    VTableName = "_ZTVN10__cxxabiv116__enum_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv116__enum_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv116__enum_type_infoE";
     break;
 
   case Type::Record: {
@@ -3536,12 +3564,18 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::ObjCObjectPointer:
   case Type::Pointer:
     // abi::__pointer_type_info.
-    VTableName = "_ZTVN10__cxxabiv119__pointer_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv119__pointer_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv119__pointer_type_infoE";
     break;
 
   case Type::MemberPointer:
     // abi::__pointer_to_member_type_info.
-    VTableName = "_ZTVN10__cxxabiv129__pointer_to_member_type_infoE";
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      VTableName = "__vt__Q210__cxxabiv129__pointer_to_member_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv129__pointer_to_member_type_infoE";
     break;
   }
 
@@ -4119,138 +4153,6 @@ ItaniumRTTIBuilder::BuildPointerToMemberTypeInfo(const MemberPointerType *Ty) {
   //   (e.g., the "A" in "int A::*").
   Fields.push_back(
       ItaniumRTTIBuilder(CXXABI).BuildTypeInfo(QualType(ClassType, 0)));
-}
-
-void MacintoshRTTIBuilder::BuildVTablePointer(const Type *Ty) {
-  // abi::__class_type_info.
-  static const char * const ClassTypeInfo =
-    "__vt__Q210__cxxabiv117__class_type_info";
-  // abi::__si_class_type_info.
-  static const char * const SIClassTypeInfo =
-    "__vt__Q210__cxxabiv120__si_class_type_info";
-  // abi::__vmi_class_type_info.
-  static const char * const VMIClassTypeInfo =
-    "__vt__Q210__cxxabiv121__vmi_class_type_info";
-
-  const char *VTableName = nullptr;
-
-  switch (Ty->getTypeClass()) {
-#define TYPE(Class, Base)
-#define ABSTRACT_TYPE(Class, Base)
-#define NON_CANONICAL_UNLESS_DEPENDENT_TYPE(Class, Base) case Type::Class:
-#define NON_CANONICAL_TYPE(Class, Base) case Type::Class:
-#define DEPENDENT_TYPE(Class, Base) case Type::Class:
-#include "clang/AST/TypeNodes.inc"
-    llvm_unreachable("Non-canonical and dependent types shouldn't get here");
-
-  case Type::LValueReference:
-  case Type::RValueReference:
-    llvm_unreachable("References shouldn't get here");
-
-  case Type::Auto:
-  case Type::DeducedTemplateSpecialization:
-    llvm_unreachable("Undeduced type shouldn't get here");
-
-  case Type::Pipe:
-    llvm_unreachable("Pipe types shouldn't get here");
-
-  case Type::Builtin:
-  case Type::ExtInt:
-  // GCC treats vector and complex types as fundamental types.
-  case Type::Vector:
-  case Type::ExtVector:
-  case Type::ConstantMatrix:
-  case Type::Complex:
-  case Type::Atomic:
-  // FIXME: GCC treats block pointers as fundamental types?!
-  case Type::BlockPointer:
-    // abi::__fundamental_type_info.
-    VTableName = "__vt__Q210__cxxabiv123__fundamental_type_info";
-    break;
-
-  case Type::ConstantArray:
-  case Type::IncompleteArray:
-  case Type::VariableArray:
-    // abi::__array_type_info.
-    VTableName = "__vt__Q210__cxxabiv117__array_type_info";
-    break;
-
-  case Type::FunctionNoProto:
-  case Type::FunctionProto:
-    // abi::__function_type_info.
-    VTableName = "__vt__Q210__cxxabiv120__function_type_info";
-    break;
-
-  case Type::Enum:
-    // abi::__enum_type_info.
-    VTableName = "__vt__Q210__cxxabiv116__enum_type_info";
-    break;
-
-  case Type::Record:
-    break;
-
-  case Type::ObjCObject:
-    // Ignore protocol qualifiers.
-    Ty = cast<ObjCObjectType>(Ty)->getBaseType().getTypePtr();
-
-    // Handle id and Class.
-    if (isa<BuiltinType>(Ty)) {
-      VTableName = ClassTypeInfo;
-      break;
-    }
-
-    assert(isa<ObjCInterfaceType>(Ty));
-    LLVM_FALLTHROUGH;
-
-  case Type::ObjCInterface:
-    if (cast<ObjCInterfaceType>(Ty)->getDecl()->getSuperClass()) {
-      VTableName = SIClassTypeInfo;
-    } else {
-      VTableName = ClassTypeInfo;
-    }
-    break;
-
-  case Type::ObjCObjectPointer:
-  case Type::Pointer:
-    // abi::__pointer_type_info.
-    VTableName = "__vt__Q210__cxxabiv119__pointer_type_info";
-    break;
-
-  case Type::MemberPointer:
-    // abi::__pointer_to_member_type_info.
-    VTableName = "__vt__Q210__cxxabiv129__pointer_to_member_type_info";
-    break;
-  }
-
-  llvm::Constant *VTable = nullptr;
-
-  // Check if the alias exists. If it doesn't, then get or create the global.
-  if (CGM.getItaniumVTableContext().isRelativeLayout())
-    VTable = CGM.getModule().getNamedAlias(VTableName);
-  if (!VTable)
-    VTable = CGM.getModule().getOrInsertGlobal(VTableName, CGM.Int8PtrTy);
-
-  CGM.setDSOLocal(cast<llvm::GlobalValue>(VTable->stripPointerCasts()));
-
-  llvm::Type *PtrDiffTy =
-      CGM.getTypes().ConvertType(CGM.getContext().getPointerDiffType());
-
-  // The vtable address point is 2.
-  if (CGM.getItaniumVTableContext().isRelativeLayout()) {
-    // The vtable address point is 8 bytes after its start:
-    // 4 for the offset to top + 4 for the relative offset to rtti.
-    llvm::Constant *Eight = llvm::ConstantInt::get(CGM.Int32Ty, 8);
-    VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
-    VTable =
-        llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Eight);
-  } else {
-    llvm::Constant *Two = llvm::ConstantInt::get(PtrDiffTy, 2);
-    VTable = llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8PtrTy, VTable,
-                                                          Two);
-  }
-  VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
-
-  Fields.push_back(VTable);
 }
 
 llvm::Constant *ItaniumCXXABI::getAddrOfRTTIDescriptor(QualType Ty) {
@@ -4942,7 +4844,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                          bool Delegating, Address This,
                                          QualType ThisTy) {
   GlobalDecl GD(DD, Type);
-  llvm::Value *Deleting = getDeletingDestructorParam(CGF, DD, Type);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type);
   QualType DeletingTy = getContext().IntTy;
 
   llvm::outs() << "Creating Dtor" << DD->getNameAsString() << "\n";
@@ -4972,7 +4874,7 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
-  llvm::Value *Deleting = getDeletingDestructorParam(CGF, Dtor, DtorType);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType);
   QualType DeletingTy = getContext().IntTy;
 
   const CGFunctionInfo *FInfo =
@@ -4990,21 +4892,4 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
   return nullptr;
-}
-
-llvm::Value *MacintoshCXXABI::getDeletingDestructorParam(CodeGenFunction &CGF,
-                                                         const CXXDestructorDecl *DD,
-                                                         CXXDtorType Type) {
-  int flag;
-  switch (Type) {
-  case Dtor_Deleting:
-    flag = 1;
-    break;
-  case Dtor_Complete:
-    flag = -1;
-    break;
-  case Dtor_Base:
-    flag = 0;
-  }
-  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
 }
