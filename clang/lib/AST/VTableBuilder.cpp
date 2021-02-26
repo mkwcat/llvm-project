@@ -1306,8 +1306,9 @@ void ItaniumVTableBuilder::AddMethod(const CXXMethodDecl *MD,
     assert(ReturnAdjustment.isEmpty() &&
            "Destructor can't have return adjustment!");
 
-    // Add both the complete destructor and the deleting destructor.
-    Components.push_back(VTableComponent::MakeCompleteDtor(DD));
+    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
+      // Add both the complete destructor and the deleting destructor.
+      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
     Components.push_back(VTableComponent::MakeDeletingDtor(DD));
   } else {
     // Add the return adjustment if necessary.
@@ -1692,10 +1693,15 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
       const CXXMethodDecl *MD = I.first;
       const MethodInfo &MI = I.second;
       if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
-        MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
-            = MI.VTableIndex - AddressPoint;
-        MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
-            = MI.VTableIndex + 1 - AddressPoint;
+        if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+          MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
+              = MI.VTableIndex - AddressPoint;
+        } else {
+          MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
+              = MI.VTableIndex - AddressPoint;
+          MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
+              = MI.VTableIndex + 1 - AddressPoint;
+        }
       } else {
         MethodVTableIndices[MD] = MI.VTableIndex - AddressPoint;
       }
