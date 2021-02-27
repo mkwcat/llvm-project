@@ -1694,6 +1694,7 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
       const MethodInfo &MI = I.second;
       if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
         if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+          llvm::outs() << "Adding Deleting Dtor to VTable at offset: " << (MI.VTableIndex - AddressPoint) << " " << MI.VTableIndex << "\n";
           MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
               = MI.VTableIndex - AddressPoint;
         } else {
@@ -1703,6 +1704,7 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
               = MI.VTableIndex + 1 - AddressPoint;
         }
       } else {
+        llvm::outs() << "Adding method to VTable at offset: " << (MI.VTableIndex - AddressPoint) << " " << MI.VTableIndex << "\n";
         MethodVTableIndices[MD] = MI.VTableIndex - AddressPoint;
       }
     }
@@ -2196,8 +2198,12 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
       GlobalDecl GD(DD, Dtor_Complete);
       assert(MethodVTableIndices.count(GD));
       uint64_t VTableIndex = MethodVTableIndices[GD];
-      IndicesMap[VTableIndex] = MethodName + " [complete]";
-      IndicesMap[VTableIndex + 1] = MethodName + " [deleting]";
+      if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+        IndicesMap[VTableIndex] = MethodName + " [deleting]";
+      } else {
+        IndicesMap[VTableIndex] = MethodName + " [complete]";
+        IndicesMap[VTableIndex + 1] = MethodName + " [deleting]";
+      }
     } else {
       assert(MethodVTableIndices.count(MD));
       IndicesMap[MethodVTableIndices[MD]] = MethodName;

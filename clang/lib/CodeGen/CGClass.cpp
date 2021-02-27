@@ -1466,7 +1466,8 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // outside of the function-try-block, which means it's always
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
-  if (DtorType == Dtor_Deleting) {
+  if (DtorType == Dtor_Deleting ||
+      (DtorType == Dtor_Complete && getTarget().getCXXABI() == TargetCXXABI::CodeWarrior)) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
     if (HaveInsertPoint()) {
@@ -1499,6 +1500,8 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   case Dtor_Complete:
     assert((Body || getTarget().getCXXABI().isMicrosoft()) &&
            "can't emit a dtor without a body for non-Microsoft ABIs");
+    assert(getTarget().getCXXABI() != TargetCXXABI::CodeWarrior &&
+           "CodeWarrior ABI already handled complete case");
 
     // Enter the cleanup scopes for virtual bases.
     EnterDtorCleanups(Dtor, Dtor_Complete);

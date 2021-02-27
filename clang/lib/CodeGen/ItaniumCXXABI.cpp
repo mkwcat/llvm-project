@@ -4847,7 +4847,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type);
   QualType DeletingTy = getContext().IntTy;
 
-  llvm::outs() << "Creating Dtor" << DD->getNameAsString() << "\n";
+  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << "\n";
 
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
