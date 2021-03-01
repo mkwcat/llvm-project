@@ -1817,6 +1817,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
     else
       EHStack.pushCleanup<CallDtorDeleteConditional>(
           NormalAndEHCleanup, CXXStructorImplicitParamValue);
+    return;
   } else {
     if (DtorType == Dtor_Deleting) {
       assert(DD->getOperatorDelete() &&
