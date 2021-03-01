@@ -512,7 +512,6 @@ private:
 class MacintoshCXXABI final : public ItaniumCXXABI {
 private:
   llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
-                                             const CXXDestructorDecl *DD,
                                              CXXDtorType Type) {
   int flag;
   switch (Type) {
@@ -4871,7 +4870,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                          bool Delegating, Address This,
                                          QualType ThisTy) {
   GlobalDecl GD(DD, Type);
-  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Type);
   QualType DeletingTy = getContext().IntTy;
 
   llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
@@ -4901,7 +4900,7 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
-  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DtorType);
   QualType DeletingTy = getContext().IntTy;
 
   const CGFunctionInfo *FInfo =
