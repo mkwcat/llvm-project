@@ -510,25 +510,6 @@ private:
 };
 
 class MacintoshCXXABI final : public ItaniumCXXABI {
-private:
-  llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
-                                             CXXDtorType Type) {
-  int flag;
-  switch (Type) {
-  case Dtor_Deleting:
-    flag = 1;
-    break;
-  case Dtor_Complete:
-    flag = -1;
-    break;
-  case Dtor_Base:
-    flag = 0;
-  case Dtor_Comdat:
-    llvm_unreachable("dtor comdat is unexpected");
-  }
-  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
-  }
-
 public:
   explicit MacintoshCXXABI(CodeGen::CodeGenModule &CGM)
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
@@ -573,6 +554,30 @@ public:
 protected:
   MacintoshMangleContext &getMangleContext() {
     return cast<MacintoshMangleContext>(CodeGen::CGCXXABI::getMangleContext());
+  }
+
+private:
+  llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
+                                             CXXDtorType Type) {
+  int flag;
+  switch (Type) {
+  case Dtor_Deleting:
+    flag = 1;
+    break;
+  case Dtor_Complete:
+    flag = -1;
+    break;
+  case Dtor_Base:
+    flag = 0;
+  case Dtor_Comdat:
+    llvm_unreachable("dtor comdat is unexpected");
+  }
+  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
+  }
+
+  bool HasThisReturn(GlobalDecl GD) const override {
+    return isa<CXXConstructorDecl>(GD.getDecl()) ||
+           isa<CXXDestructorDecl>(GD.getDecl());
   }
 };
 
