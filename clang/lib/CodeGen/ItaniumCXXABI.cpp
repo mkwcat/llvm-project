@@ -1975,7 +1975,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
       VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
 
       llvm::Value *Load;
-      if (getContext().getTargetTriple().getCXXABI() == TargetCXXABI::CodeWarrior)
+      if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
         Load = CGF.Builder.CreateCall(
             CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
             {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * (VTableIndex + 2))});
@@ -1989,7 +1989,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
           CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
 
       llvm::Value *VTableSlotPtr;
-      if (getContext().getTargetTriple().getCXXABI() == TargetCXXABI::CodeWarrior)
+      if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
         VTableSlotPtr =
             CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex + 2, "vfn");
       else
