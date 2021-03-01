@@ -1783,6 +1783,8 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                        CXXDtorType Type, bool ForVirtualBase,
                                        bool Delegating, Address This,
                                        QualType ThisTy) {
+  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
+
   GlobalDecl GD(DD, Type);
   llvm::Value *VTT =
       getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
@@ -2014,6 +2016,8 @@ llvm::Value *ItaniumCXXABI::EmitVirtualDestructorCall(
   assert((CE != nullptr) ^ (D != nullptr));
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
+
+  llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
   const CGFunctionInfo *FInfo =
@@ -4822,11 +4826,11 @@ void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
     ASTContext &Context = getContext();
 
     QualType T = Context.IntTy;
-    auto *VTTDecl = ImplicitParamDecl::Create(
+    auto *DtorTypeDecl = ImplicitParamDecl::Create(
         Context, /*DC=*/nullptr, MD->getLocation(), &Context.Idents.get("int"),
         T, ImplicitParamDecl::CXXVTT);
-    Params.insert(Params.begin() + 1, VTTDecl);
-    getStructorImplicitParamDecl(CGF) = VTTDecl;
+    Params.insert(Params.begin() + 1, DtorTypeDecl);
+    getStructorImplicitParamDecl(CGF) = DtorTypeDecl;
   }
 }
 
