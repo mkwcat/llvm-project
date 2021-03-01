@@ -1973,13 +1973,13 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
       VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
       llvm::Value *Load = CGF.Builder.CreateCall(
           CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
-          {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * VTableIndex)});
+          {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * (VTableIndex + 2))});
       VFuncLoad = CGF.Builder.CreateBitCast(Load, Ty->getPointerTo());
     } else {
       VTable =
           CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
       llvm::Value *VTableSlotPtr =
-          CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
+          CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex + 2, "vfn");
       VFuncLoad =
           CGF.Builder.CreateAlignedLoad(VTableSlotPtr, CGF.getPointerAlign());
     }
@@ -3596,14 +3596,22 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   if (CGM.getItaniumVTableContext().isRelativeLayout()) {
     // The vtable address point is 8 bytes after its start:
     // 4 for the offset to top + 4 for the relative offset to rtti.
-    llvm::Constant *Eight = llvm::ConstantInt::get(CGM.Int32Ty, 8);
+    llvm::Constant *Offset;
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) 
+      Offset = llvm::ConstantInt::get(CGM.Int32Ty, 0);
+    else
+      Offset = llvm::ConstantInt::get(CGM.Int32Ty, 8);
     VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
     VTable =
-        llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Eight);
+        llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Offset);
   } else {
-    llvm::Constant *Two = llvm::ConstantInt::get(PtrDiffTy, 2);
+    llvm::Constant *Offset;
+    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) 
+      Offset = llvm::ConstantInt::get(PtrDiffTy, 0);
+    else
+      Offset = llvm::ConstantInt::get(PtrDiffTy, 2);
     VTable = llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8PtrTy, VTable,
-                                                          Two);
+                                                          Offset);
   }
   VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
 
@@ -4847,7 +4855,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type);
   QualType DeletingTy = getContext().IntTy;
 
-  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << "\n";
+  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
 
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
@@ -4855,7 +4863,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
     Callee = CGF.BuildAppleKextVirtualDestructorCall(DD, Type, DD->getParent());
   else
     Callee = CGCallee::forDirect(CGM.getAddrOfCXXStructor(GD), GD);
-
+  
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
 }
