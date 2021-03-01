@@ -4835,7 +4835,9 @@ void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
   assert(isa<CXXConstructorDecl>(MD) || isa<CXXDestructorDecl>(MD));
 
   // Check if we need a dtor parameter as well.
+  llvm::outs() << "Preparing implicit arg! " << Params.size() << "\n";
   if (isa<CXXDestructorDecl>(MD)) {
+    llvm::outs() << "Creating implicit arg! " << Params.size() << "\n";
     ASTContext &Context = getContext();
 
     QualType T = Context.IntTy;
