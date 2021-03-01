@@ -242,6 +242,8 @@ public:
   /// Does this ABI have different entrypoints for complete-object
   /// and base-subobject constructors?
   bool hasConstructorVariants() const {
+    if (getKind() == CodeWarrior)
+      return false;
     return isItaniumFamily();
   }
 
