@@ -1472,8 +1472,10 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     EnterDtorCleanups(Dtor, Dtor_Deleting);
     if (HaveInsertPoint()) {
       QualType ThisTy = Dtor->getThisObjectType();
-      EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
-                            /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
+      llvm::outs() << "DtorType " << CurGD.getDtorType() << "\n";
+      if (DtorType == Dtor_Deleting)
+        EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
+                              /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
     }
     return;
   }
