@@ -1470,12 +1470,10 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       (DtorType == Dtor_Complete && getTarget().getCXXABI() == TargetCXXABI::CodeWarrior)) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
-    if (HaveInsertPoint()) {
+    if (HaveInsertPoint() && getTarget().getCXXABI() != TargetCXXABI::CodeWarrior) {
       QualType ThisTy = Dtor->getThisObjectType();
-      llvm::outs() << "DtorType " << CurGD.getDtorType() << "\n";
-      if (DtorType == Dtor_Deleting)
-        EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
-                              /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
+      EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
+                            /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
     }
     return;
   }

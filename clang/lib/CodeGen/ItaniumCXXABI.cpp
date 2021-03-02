@@ -532,6 +532,10 @@ public:
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
 
+  void EmitCXXDestructors(const CXXDestructorDecl *D) override {
+    CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
+  }
+
   void EmitDestructorCall(CodeGenFunction &CGF,
                           const CXXDestructorDecl *DD,
                           CXXDtorType Type, bool ForVirtualBase,
