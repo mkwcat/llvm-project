@@ -1504,6 +1504,7 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       CallBaseDtor BaseCall(BaseClassDecl, true);
       BaseCall.Emit(*this, /*flags*/{});
     }
+        return;
   }
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
