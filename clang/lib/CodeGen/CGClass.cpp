@@ -1493,6 +1493,35 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       BaseCall.Emit(*this, /*flags*/{});
     }
 
+    llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
+    llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
+
+    int flag;
+    switch (DtorType) {
+    case Dtor_Deleting:
+      flag = 1;
+      break;
+    case Dtor_Complete:
+      flag = -1;
+      break;
+    case Dtor_Base:
+      flag = 0;
+      break;
+    case Dtor_Comdat:
+      llvm_unreachable("dtor comdat is unexpected");
+    }
+
+    llvm::Value *ShouldDeleteCondition
+    = llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
+    llvm::Value *ShouldCheckDelete
+    = Builder.CreateICmpEQ(ShouldDeleteCondition,
+                           llvm::Constant::getIntegerValue(
+                             ShouldDeleteCondition->getType(),
+                             llvm::APInt(32, 0)));
+
+    Builder.CreateCondBr(ShouldCheckDelete, checkDeleteBB, destroyVBasesBB);
+    EmitBlock(destroyVBasesBB);
+
     for (const auto &Base : ClassDecl->vbases()) {
       auto *BaseClassDecl =
           cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
@@ -1504,7 +1533,10 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       CallBaseDtor BaseCall(BaseClassDecl, true);
       BaseCall.Emit(*this, /*flags*/{});
     }
-        return;
+
+    Builder.CreateBr(checkDeleteBB);
+    EmitBlock(checkDeleteBB);
+    return;
   }
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);

@@ -556,21 +556,11 @@ public:
                                          Address This,
                                          DeleteOrMemberCallExpr E) override;
 
-
-  /// Return whether the given global decl needs a VTT parameter, which it does
-  /// if it's a base constructor or destructor with virtual bases.
-  bool NeedsVTTParameter(GlobalDecl GD) override {
-    return false;
-  }
-
-protected:
-  MacintoshMangleContext &getMangleContext() {
-    return cast<MacintoshMangleContext>(CodeGen::CGCXXABI::getMangleContext());
-  }
-
-private:
   llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
-                                             CXXDtorType Type) {
+                                             const CXXDestructorDecl *DD,
+                                             CXXDtorType Type,
+                                             bool ForVirtualBase,
+                                             bool Delegating) override {
   int flag;
   switch (Type) {
   case Dtor_Deleting:
@@ -587,6 +577,19 @@ private:
   }
   return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
   }
+
+  /// Return whether the given global decl needs a VTT parameter, which it does
+  /// if it's a base constructor or destructor with virtual bases.
+  bool NeedsVTTParameter(GlobalDecl GD) override {
+    return false;
+  }
+
+protected:
+  MacintoshMangleContext &getMangleContext() {
+    return cast<MacintoshMangleContext>(CodeGen::CGCXXABI::getMangleContext());
+  }
+
+private:
 
   bool HasThisReturn(GlobalDecl GD) const override {
     return isa<CXXConstructorDecl>(GD.getDecl()) ||
@@ -4886,7 +4889,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                          bool Delegating, Address This,
                                          QualType ThisTy) {
   GlobalDecl GD(DD, Type);
-  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Type);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
   QualType DeletingTy = getContext().IntTy;
 
   llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
@@ -4916,7 +4919,7 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
-  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DtorType);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType, false, false);
   QualType DeletingTy = getContext().IntTy;
 
   const CGFunctionInfo *FInfo =
