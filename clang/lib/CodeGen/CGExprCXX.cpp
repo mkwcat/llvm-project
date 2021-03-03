@@ -1950,41 +1950,75 @@ static bool EmitObjectDelete(CodeGenFunction &CGF,
   // Make sure that we call delete even if the dtor throws.
   // This doesn't have to a conditional cleanup because we're going
   // to pop it off in a second.
-  CGF.EHStack.pushCleanup<CallObjectDelete>(NormalAndEHCleanup,
-                                            Ptr.getPointer(),
-                                            OperatorDelete, ElementType);
-
-  if (Dtor)
-    CGF.EmitCXXDestructorCall(Dtor, Dtor_Complete,
-                              /*ForVirtualBase=*/false,
-                              /*Delegating=*/false,
-                              Ptr, ElementType);
-  else if (auto Lifetime = ElementType.getObjCLifetime()) {
-    switch (Lifetime) {
-    case Qualifiers::OCL_None:
-    case Qualifiers::OCL_ExplicitNone:
-    case Qualifiers::OCL_Autoreleasing:
-      break;
-
-    case Qualifiers::OCL_Strong:
-      CGF.EmitARCDestroyStrong(Ptr, ARCPreciseLifetime);
-      break;
-
-    case Qualifiers::OCL_Weak:
-      CGF.EmitARCDestroyWeak(Ptr);
-      break;
+  if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (Dtor) {
+      CGF.EmitCXXDestructorCall(Dtor, Dtor_Deleting,
+                                /*ForVirtualBase=*/false,
+                                /*Delegating=*/false,
+                                Ptr, ElementType);
     }
-  }
+    else if (auto Lifetime = ElementType.getObjCLifetime()) {
+      switch (Lifetime) {
+      case Qualifiers::OCL_None:
+      case Qualifiers::OCL_ExplicitNone:
+      case Qualifiers::OCL_Autoreleasing:
+        break;
 
-  // When optimizing for size, call 'operator delete' unconditionally.
-  if (CGF.CGM.getCodeGenOpts().OptimizeSize > 1) {
-    CGF.EmitBlock(UnconditionalDeleteBlock);
+      case Qualifiers::OCL_Strong:
+        CGF.EmitARCDestroyStrong(Ptr, ARCPreciseLifetime);
+        break;
+
+      case Qualifiers::OCL_Weak:
+        CGF.EmitARCDestroyWeak(Ptr);
+        break;
+      }
+    }
+
+    // When optimizing for size, call 'operator delete' unconditionally.
+    if (CGF.CGM.getCodeGenOpts().OptimizeSize > 1) {
+      CGF.EmitBlock(UnconditionalDeleteBlock);
+      return true;
+    }
+    return false;
+
+  } else {
+    CGF.EHStack.pushCleanup<CallObjectDelete>(NormalAndEHCleanup,
+                                              Ptr.getPointer(),
+                                              OperatorDelete, ElementType);
+
+    if (Dtor) {
+      CGF.EmitCXXDestructorCall(Dtor, Dtor_Complete,
+                                /*ForVirtualBase=*/false,
+                                /*Delegating=*/false,
+                                Ptr, ElementType);
+    }
+    else if (auto Lifetime = ElementType.getObjCLifetime()) {
+      switch (Lifetime) {
+      case Qualifiers::OCL_None:
+      case Qualifiers::OCL_ExplicitNone:
+      case Qualifiers::OCL_Autoreleasing:
+        break;
+
+      case Qualifiers::OCL_Strong:
+        CGF.EmitARCDestroyStrong(Ptr, ARCPreciseLifetime);
+        break;
+
+      case Qualifiers::OCL_Weak:
+        CGF.EmitARCDestroyWeak(Ptr);
+        break;
+      }
+    }
+
+    // When optimizing for size, call 'operator delete' unconditionally.
+    if (CGF.CGM.getCodeGenOpts().OptimizeSize > 1) {
+      CGF.EmitBlock(UnconditionalDeleteBlock);
+      CGF.PopCleanupBlock();
+      return true;
+    }
+
     CGF.PopCleanupBlock();
-    return true;
+    return false;
   }
-
-  CGF.PopCleanupBlock();
-  return false;
 }
 
 namespace {

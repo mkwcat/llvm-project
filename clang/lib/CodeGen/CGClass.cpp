@@ -1471,7 +1471,7 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
-    if (HaveInsertPoint() && getContext().getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {// <- base callee thing
+    if (HaveInsertPoint() && getContext().getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
       QualType ThisTy = Dtor->getThisObjectType();
       EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
