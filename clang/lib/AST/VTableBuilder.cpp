@@ -1306,7 +1306,9 @@ void ItaniumVTableBuilder::AddMethod(const CXXMethodDecl *MD,
     assert(ReturnAdjustment.isEmpty() &&
            "Destructor can't have return adjustment!");
 
-    Components.push_back(VTableComponent::MakeCompleteDtor(DD));
+    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
+      // Add both the complete destructor and the deleting destructor.
+      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
     Components.push_back(VTableComponent::MakeDeletingDtor(DD));
   } else {
     // Add the return adjustment if necessary.

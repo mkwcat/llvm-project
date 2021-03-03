@@ -524,6 +524,14 @@ public:
                          SmallVectorImpl<CanQualType> &ArgTys) override;
 
   void emitCXXStructor(GlobalDecl GD) override {
+    auto *MD = cast<CXXMethodDecl>(GD.getDecl());
+    auto *CD = dyn_cast<CXXConstructorDecl>(MD);
+    const CXXDestructorDecl *DD = CD ? nullptr : cast<CXXDestructorDecl>(MD);
+
+    if (DD && GD.getDtorType() == Dtor_Base &&
+        !CGM.TryEmitBaseDestructorAsAlias(DD))
+      return;
+
     llvm::Function *Fn = CGM.codegenCXXStructor(GD);
     CGM.maybeSetTrivialComdat(*GD.getDecl(), *Fn);
   }
@@ -532,9 +540,9 @@ public:
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
 
-  //void EmitCXXDestructors(const CXXDestructorDecl *D) override {
-  //  CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
-  //}
+  void EmitCXXDestructors(const CXXDestructorDecl *D) override {
+    CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
+  }
 
   void EmitDestructorCall(CodeGenFunction &CGF,
                           const CXXDestructorDecl *DD,
@@ -631,6 +639,9 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
   case TargetCXXABI::AppleARM64:
     return new AppleARM64CXXABI(CGM);
 
+  case TargetCXXABI::CodeWarrior:
+    return new MacintoshCXXABI(CGM);
+
   case TargetCXXABI::Fuchsia:
     return new FuchsiaCXXABI(CGM);
 
@@ -659,9 +670,6 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
       return new ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/true);
     }
     return new ItaniumCXXABI(CGM);
-
-  case TargetCXXABI::CodeWarrior:
-    return new MacintoshCXXABI(CGM);
 
   case TargetCXXABI::Microsoft:
     llvm_unreachable("Microsoft ABI is not Itanium-based");
@@ -1347,7 +1355,7 @@ void ItaniumCXXABI::emitVirtualObjectDelete(CodeGenFunction &CGF,
 
   // FIXME: Provide a source location here even though there's no
   // CXXMemberCallExpr for dtor call.
-  CXXDtorType DtorType = UseGlobalDelete ? Dtor_Complete : Dtor_Deleting;
+  CXXDtorType DtorType = UseGlobalDelete ? Dtor_Deleting : Dtor_Deleting;
   EmitVirtualDestructorCall(CGF, Dtor, DtorType, Ptr, DE);
 
   if (UseGlobalDelete)

@@ -380,14 +380,8 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
       QualType ThisTy =
           IsArrow ? Base->getType()->getPointeeType() : Base->getType();
       if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-        int flag;
-        if (Dtor->getOperatorDelete() &&
-            Dtor->getOperatorDelete()->isDestroyingOperatorDelete())
-          flag = 1;
-        else
-          flag = -1;
         EmitCXXDestructorCall(GD, Callee, This.getPointer(*this), ThisTy,
-                              llvm::ConstantInt::get(CGM.Int32Ty, flag, true),
+                              llvm::ConstantInt::get(CGM.Int32Ty, -1, true),
                               getContext().IntTy, CE);
       } else {
         EmitCXXDestructorCall(GD, Callee, This.getPointer(*this), ThisTy,

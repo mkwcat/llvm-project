@@ -1466,13 +1466,13 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // outside of the function-try-block, which means it's always
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
+
+  llvm::outs() << Dtor->getNameAsString() << " " << DtorType << " " << Dtor->getThisObjectType().getAsString() << "\n";
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
-    llvm::outs() << Dtor->getNameAsString() << "\n";
-    if (HaveInsertPoint()) {// <- base callee thing
+    if (HaveInsertPoint() && getContext().getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {// <- base callee thing
       QualType ThisTy = Dtor->getThisObjectType();
-      llvm::outs() << Dtor->getNameAsString() << "\n" << DtorType << "\n";
       EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
     }
@@ -1599,15 +1599,14 @@ namespace {
     llvm::BasicBlock *continueBB = CGF.createBasicBlock("dtor.continue");
     llvm::Value *ShouldCallDelete;
 
-    if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
       ShouldCallDelete = CGF.Builder.CreateICmpSLE(ShouldDeleteCondition,
                                                    llvm::Constant::getIntegerValue(ShouldDeleteCondition->getType(),
                                                    llvm::APInt(32, 0)));
-      CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
-    } else {
+    else
       ShouldCallDelete = CGF.Builder.CreateIsNull(ShouldDeleteCondition);
-      CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
-    }
+
+    CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
 
     CGF.EmitBlock(callDeleteBB);
     const CXXDestructorDecl *Dtor = cast<CXXDestructorDecl>(CGF.CurCodeDecl);
@@ -1811,7 +1810,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
   // operator delete that Sema picked up.
   if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
     assert(DD->getOperatorDelete() &&
-            "operator delete missing - EnterDtorCleanups");
+           "operator delete missing - EnterDtorCleanups");
     if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
       EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
                                     /*ReturnAfterDelete*/true);
