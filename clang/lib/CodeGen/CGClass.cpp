@@ -1468,6 +1468,43 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // destructor.  Do so.
 
   llvm::outs() << Dtor->getNameAsString() << " " << DtorType << " " << Dtor->getThisObjectType().getAsString() << "\n";
+  if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    const CXXRecordDecl *ClassDecl = Dtor->getParent();
+
+    RunCleanupsScope DtorEpilogue(*this);
+    EnterDtorCleanups(Dtor, Dtor_Deleting);
+
+    // Unions have no bases and do not call field destructors.
+    if (ClassDecl->isUnion())
+      return;
+
+    // The complete-destructor phase just destructs all the virtual bases.
+    // We push them in the forward order so that they'll be popped in
+    // the reverse order.
+    for (const auto &Base : ClassDecl->bases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+      // Ignore trivial destructors.
+      if (BaseClassDecl->hasTrivialDestructor())
+        continue;
+
+      CallBaseDtor BaseCall(BaseClassDecl, false);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+
+    for (const auto &Base : ClassDecl->vbases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+      // Ignore trivial destructors.
+      if (BaseClassDecl->hasTrivialDestructor())
+        continue;
+
+      CallBaseDtor BaseCall(BaseClassDecl, true);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+  }
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
