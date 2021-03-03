@@ -1466,12 +1466,13 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // outside of the function-try-block, which means it's always
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
-  if (DtorType == Dtor_Deleting ||
-      (DtorType == Dtor_Complete && getTarget().getCXXABI() == TargetCXXABI::CodeWarrior)) {
+  if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
-    if (HaveInsertPoint() && getTarget().getCXXABI() != TargetCXXABI::CodeWarrior) {
+    llvm::outs() << Dtor->getNameAsString() << "\n";
+    if (HaveInsertPoint()) {// <- base callee thing
       QualType ThisTy = Dtor->getThisObjectType();
+      llvm::outs() << Dtor->getNameAsString() << "\n" << DtorType << "\n";
       EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
     }
@@ -1500,8 +1501,6 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   case Dtor_Complete:
     assert((Body || getTarget().getCXXABI().isMicrosoft()) &&
            "can't emit a dtor without a body for non-Microsoft ABIs");
-    assert(getTarget().getCXXABI() != TargetCXXABI::CodeWarrior &&
-           "CodeWarrior ABI already handled complete case");
 
     // Enter the cleanup scopes for virtual bases.
     EnterDtorCleanups(Dtor, Dtor_Complete);
@@ -1811,6 +1810,8 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
   // The deleting-destructor phase just needs to call the appropriate
   // operator delete that Sema picked up.
   if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
     if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
       EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
                                     /*ReturnAfterDelete*/true);

@@ -532,9 +532,9 @@ public:
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
 
-  void EmitCXXDestructors(const CXXDestructorDecl *D) override {
-    CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
-  }
+  //void EmitCXXDestructors(const CXXDestructorDecl *D) override {
+  //  CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
+  //}
 
   void EmitDestructorCall(CodeGenFunction &CGF,
                           const CXXDestructorDecl *DD,
@@ -573,6 +573,7 @@ private:
     break;
   case Dtor_Base:
     flag = 0;
+    break;
   case Dtor_Comdat:
     llvm_unreachable("dtor comdat is unexpected");
   }
@@ -4843,9 +4844,7 @@ void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
   assert(isa<CXXConstructorDecl>(MD) || isa<CXXDestructorDecl>(MD));
 
   // Check if we need a dtor parameter as well.
-  llvm::outs() << "Preparing implicit arg! " << Params.size() << "\n";
   if (isa<CXXDestructorDecl>(MD)) {
-    llvm::outs() << "Creating implicit arg! " << Params.size() << "\n";
     ASTContext &Context = getContext();
 
     QualType T = Context.IntTy;
