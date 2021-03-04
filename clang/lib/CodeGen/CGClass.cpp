@@ -1496,27 +1496,10 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
     llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
 
-    int flag;
-    switch (DtorType) {
-    case Dtor_Deleting:
-      flag = 1;
-      break;
-    case Dtor_Complete:
-      flag = -1;
-      break;
-    case Dtor_Base:
-      flag = 0;
-      break;
-    case Dtor_Comdat:
-      llvm_unreachable("dtor comdat is unexpected");
-    }
-
-    llvm::Value *ShouldDeleteCondition
-    = llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
     llvm::Value *ShouldCheckDelete
-    = Builder.CreateICmpEQ(ShouldDeleteCondition,
+    = Builder.CreateICmpEQ(CXXStructorImplicitParamValue,
                            llvm::Constant::getIntegerValue(
-                             ShouldDeleteCondition->getType(),
+                             CXXStructorImplicitParamValue->getType(),
                              llvm::APInt(32, 0)));
 
     Builder.CreateCondBr(ShouldCheckDelete, checkDeleteBB, destroyVBasesBB);
