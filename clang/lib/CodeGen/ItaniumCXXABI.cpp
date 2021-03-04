@@ -1803,7 +1803,6 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                        CXXDtorType Type, bool ForVirtualBase,
                                        bool Delegating, Address This,
                                        QualType ThisTy) {
-  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
 
   GlobalDecl GD(DD, Type);
   llvm::Value *VTT =
@@ -2050,7 +2049,6 @@ llvm::Value *ItaniumCXXABI::EmitVirtualDestructorCall(
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
-  llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
   const CGFunctionInfo *FInfo =
@@ -4892,7 +4890,6 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
   QualType DeletingTy = getContext().IntTy;
 
-  llvm::outs() << "Creating Dtor - " << DD->getNameAsString() << " " << Type << "\n";
 
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
@@ -4916,7 +4913,6 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
-  llvm::outs() << "Creating VTDtor - " << Dtor->getNameAsString() << "\n";
 
   GlobalDecl GD(Dtor, DtorType);
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType, false, false);

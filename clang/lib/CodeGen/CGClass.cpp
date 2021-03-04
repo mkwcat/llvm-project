@@ -1467,7 +1467,6 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
 
-  llvm::outs() << Dtor->getNameAsString() << " " << DtorType << " " << Dtor->getThisObjectType().getAsString() << "\n";
   if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
     const CXXRecordDecl *ClassDecl = Dtor->getParent();
 
