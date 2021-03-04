@@ -1861,14 +1861,16 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
   // The deleting-destructor phase just needs to call the appropriate
   // operator delete that Sema picked up.
   if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-    assert(DD->getOperatorDelete() &&
-           "operator delete missing - EnterDtorCleanups");
-    if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
-      EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
-                                    /*ReturnAfterDelete*/true);
-    else
-      EHStack.pushCleanup<CallDtorDeleteConditional>(
-          NormalAndEHCleanup, CXXStructorImplicitParamValue);
+    if (DtorType == Dtor_Deleting) {
+      assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
+      if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
+        EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
+                                      /*ReturnAfterDelete*/true);
+      else
+        EHStack.pushCleanup<CallDtorDeleteConditional>(
+            NormalAndEHCleanup, CXXStructorImplicitParamValue);
+    }
     return;
   } else {
     if (DtorType == Dtor_Deleting) {
