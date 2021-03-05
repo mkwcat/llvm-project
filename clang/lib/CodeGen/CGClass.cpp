@@ -1467,6 +1467,60 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
 
+  if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    const CXXRecordDecl *ClassDecl = Dtor->getParent();
+
+    RunCleanupsScope DtorEpilogue(*this);
+    EnterDtorCleanups(Dtor, Dtor_Deleting);
+
+    // Unions have no bases and do not call field destructors.
+    if (ClassDecl->isUnion())
+      return;
+
+    // The complete-destructor phase just destructs all the virtual bases.
+    // We push them in the forward order so that they'll be popped in
+    // the reverse order.
+    for (const auto &Base : ClassDecl->bases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+      // Ignore trivial destructors.
+      if (BaseClassDecl->hasTrivialDestructor())
+        continue;
+
+      CallBaseDtor BaseCall(BaseClassDecl, false);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+
+    llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
+    llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
+
+    llvm::Value *ShouldCheckDelete
+    = Builder.CreateICmpEQ(CXXStructorImplicitParamValue,
+                           llvm::Constant::getIntegerValue(
+                             CXXStructorImplicitParamValue->getType(),
+                             llvm::APInt(32, 0)));
+
+    Builder.CreateCondBr(ShouldCheckDelete, checkDeleteBB, destroyVBasesBB);
+    EmitBlock(destroyVBasesBB);
+
+    for (const auto &Base : ClassDecl->vbases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+      // Ignore trivial destructors.
+      if (BaseClassDecl->hasTrivialDestructor())
+        continue;
+
+      CallBaseDtor BaseCall(BaseClassDecl, true);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+
+    Builder.CreateBr(checkDeleteBB);
+    EmitBlock(checkDeleteBB);
+    return;
+  }
+  
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
@@ -1818,61 +1872,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
       else
         EHStack.pushCleanup<CallDtorDeleteConditional>(
             NormalAndEHCleanup, CXXStructorImplicitParamValue);
-
-      const CXXRecordDecl *ClassDecl = DD->getParent();
-
-      // Unions have no bases and do not call field destructors.
-      if (ClassDecl->isUnion())
-        return;
-
-      // The complete-destructor phase just destructs all the virtual bases.
-      // We push them in the forward order so that they'll be popped in
-      // the reverse order.
-      for (const auto &Base : ClassDecl->bases()) {
-        // Ignore virtual bases.
-        if (Base.isVirtual())
-          continue;
-
-        CXXRecordDecl *BaseClassDecl = Base.getType()->getAsCXXRecordDecl();
-
-        // Ignore trivial destructors.
-        if (BaseClassDecl->hasTrivialDestructor())
-          continue;
-
-        CallBaseDtor BaseCall(BaseClassDecl, false);
-        BaseCall.Emit(*this, /*flags*/{});
-      }
-
-      llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
-      llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
-
-      llvm::Value *ShouldCheckDelete
-      = Builder.CreateICmpEQ(CXXStructorImplicitParamValue,
-                            llvm::Constant::getIntegerValue(
-                              CXXStructorImplicitParamValue->getType(),
-                              llvm::APInt(32, 0)));
-
-      Builder.CreateCondBr(ShouldCheckDelete, checkDeleteBB, destroyVBasesBB);
-      EmitBlock(destroyVBasesBB);
-
-      for (const auto &Base : ClassDecl->vbases()) {
-        auto *BaseClassDecl =
-            cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
-
-        // Ignore trivial destructors.
-        if (BaseClassDecl->hasTrivialDestructor())
-          continue;
-
-        EHStack.pushCleanup<CallBaseDtor>(NormalAndEHCleanup,
-                                          BaseClassDecl,
-                                          /*BaseIsVirtual*/ true);
-      }
-
-      Builder.CreateBr(checkDeleteBB);
-      EmitBlock(checkDeleteBB);
-
     }
-    
     return;
   } else {
     if (DtorType == Dtor_Deleting) {
