@@ -6,6 +6,14 @@
 // RUN: FileCheck --check-prefix=CHECK-5 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-6 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-7 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-8 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-9 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-10 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-11 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-12 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-13 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-14 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-15 %s < %t
 
 namespace Test1 {
 // CHECK-1:      Vtable for 'Test1::A' (3 entries).
@@ -21,21 +29,55 @@ struct A {
 };
 void A::f() { }
 
+}
+
+
+namespace Test2 {
+
+// This is a smoke test of the vtable dumper.
+// CHECK-2:      Vtable for 'Test2::A' (8 entries).
+// CHECK-2-NEXT:   0 | Test2::A RTTI
+// CHECK-2-NEXT:   1 | offset_to_top (0)
+// CHECK-2-NEXT:       -- (Test2::A, 0) vtable address --
+// CHECK-2-NEXT:   2 | void Test2::A::f()
+// CHECK-2-NEXT:   3 | void Test2::A::f() const
+// CHECK-2-NEXT:   4 | Test2::A *Test2::A::g(int)
+// CHECK-2-NEXT:   5 | Test2::A::~A() [deleting]
+// CHECK-2-NEXT:   6 | void Test2::A::h()
+// CHECK-2-NEXT:   7 | Test2::A &Test2::A::operator=(const Test2::A &)
+//
+// CHECK-2:      VTable indices for 'Test2::A' (6 entries).
+// CHECK-2-NEXT:   0 | void Test2::A::f()
+// CHECK-2-NEXT:   1 | void Test2::A::f() const
+// CHECK-2-NEXT:   2 | Test2::A *Test2::A::g(int)
+// CHECK-2-NEXT:   3 | Test2::A::~A() [deleting]
+// CHECK-2-NEXT:   4 | void Test2::A::h()
+// CHECK-2-NEXT:   5 | Test2::A &Test2::A::operator=(const Test2::A &)
+struct A {
+  virtual void f();
+  virtual void f() const;
+  
+  virtual A* g(int a);
+  virtual ~A();
+  virtual void h();
+  virtual A& operator=(const A&);
+};
+void A::f() { }
 
 // Another simple vtable dumper test.
 
-// CHECK-3:     Vtable for 'Test2::B' (6 entries).
+// CHECK-3:     Vtable for 'Test2::B' (5 entries).
 // CHECK-3-NEXT:  0 | Test2::B RTTI
 // CHECK-3-NEXT:  1 | offset_to_top (0)
 // CHECK-3-NEXT:    -- (Test2::B, 0) vtable address --
 // CHECK-3-NEXT:  2 | void Test2::B::f()
 // CHECK-3-NEXT:  3 | void Test2::B::g() [pure]
-// CHECK-3-NEXT:  4 | Test2::B::~B() [universal] [pure]
+// CHECK-3-NEXT:  4 | Test2::B::~B() [deleting] [pure]
 //
-// CHECK-3:     VTable indices for 'Test2::B' (4 entries).
+// CHECK-3:     VTable indices for 'Test2::B' (3 entries).
 // CHECK-3-NEXT:  0 | void Test2::B::f()
 // CHECK-3-NEXT:  1 | void Test2::B::g()
-// CHECK-3-NEXT:  2 | Test2::B::~B() [universal]
+// CHECK-3-NEXT:  2 | Test2::B::~B() [deleting]
 struct B {
   virtual void f();
   virtual void g() = 0;
@@ -166,7 +208,7 @@ struct C {
 // CHECK-9-NEXT:       -- (Test4::C, 0) vtable address --
 // CHECK-9-NEXT:       -- (Test4::D, 0) vtable address --
 // CHECK-9-NEXT:   2 | Test4::V2 *Test4::D::f()
-// CHECK-9-NEXT:       [return adjustment: 0 non-virtual, -24 vbase offset offset]
+// CHECK-9-NEXT:       [return adjustment: 0 non-virtual, -12 vbase offset offset]
 // CHECK-9-NEXT:   3 | Test4::V2 *Test4::D::f()
 //
 // CHECK-9:     VTable indices for 'Test4::D' (1 entries).
@@ -185,7 +227,7 @@ struct V3 : virtual R3 { int r3; };
 // CHECK-10-NEXT:       -- (Test4::A, 0) vtable address --
 // CHECK-10-NEXT:       -- (Test4::E, 0) vtable address --
 // CHECK-10-NEXT:   2 | Test4::V3 *Test4::E::f()
-// CHECK-10-NEXT:       [return adjustment: 4 non-virtual, -24 vbase offset offset]
+// CHECK-10-NEXT:       [return adjustment: 4 non-virtual, -12 vbase offset offset]
 // CHECK-10-NEXT:   3 | Test4::V3 *Test4::E::f()
 //
 // CHECK-10:     VTable indices for 'Test4::E' (1 entries).
@@ -248,9 +290,9 @@ struct B2 : A {
 // CHECK-12-NEXT:   3 | void Test5::A::g()
 // CHECK-12-NEXT:   4 | void Test5::C::h()
 // CHECK-12-NEXT:   5 | Test5::C RTTI
-// CHECK-12-NEXT:   6 | offset_to_top (-16)
-// CHECK-12-NEXT:       -- (Test5::A, 16) vtable address --
-// CHECK-12-NEXT:       -- (Test5::B2, 16) vtable address --
+// CHECK-12-NEXT:   6 | offset_to_top (-12)
+// CHECK-12-NEXT:       -- (Test5::A, 12) vtable address --
+// CHECK-12-NEXT:       -- (Test5::B2, 12) vtable address --
 // CHECK-12-NEXT:   7 | void Test5::A::f()
 // CHECK-12-NEXT:   8 | void Test5::B2::g()
 //
@@ -282,10 +324,10 @@ struct A2 {
 // CHECK-13-NEXT:       -- (Test6::C, 0) vtable address --
 // CHECK-13-NEXT:   2 | void Test6::C::f()
 // CHECK-13-NEXT:   3 | Test6::C RTTI
-// CHECK-13-NEXT:   4 | offset_to_top (-16)
-// CHECK-13-NEXT:       -- (Test6::A2, 16) vtable address --
+// CHECK-13-NEXT:   4 | offset_to_top (-8)
+// CHECK-13-NEXT:       -- (Test6::A2, 8) vtable address --
 // CHECK-13-NEXT:   5 | void Test6::C::f()
-// CHECK-13-NEXT:       [this adjustment: -16 non-virtual]
+// CHECK-13-NEXT:       [this adjustment: -8 non-virtual]
 //
 // CHECK-13:     VTable indices for 'Test6::C' (1 entries).
 // CHECK-13-NEXT:   0 | void Test6::C::f()
@@ -319,17 +361,17 @@ struct C { virtual void c(); };
 // CHECK-14-NEXT:   2 | void Test7::C::c()
 // CHECK-14-NEXT:   3 | void Test7::D::f()
 // CHECK-14-NEXT:   4 | Test7::D RTTI
-// CHECK-14-NEXT:   5 | offset_to_top (-8)
-// CHECK-14-NEXT:       -- (Test7::A, 8) vtable address --
-// CHECK-14-NEXT:       -- (Test7::B1, 8) vtable address --
+// CHECK-14-NEXT:   5 | offset_to_top (-4)
+// CHECK-14-NEXT:       -- (Test7::A, 4) vtable address --
+// CHECK-14-NEXT:       -- (Test7::B1, 4) vtable address --
 // CHECK-14-NEXT:   6 | void Test7::D::f()
-// CHECK-14-NEXT:       [this adjustment: -8 non-virtual]
+// CHECK-14-NEXT:       [this adjustment: -4 non-virtual]
 // CHECK-14-NEXT:   7 | Test7::D RTTI
-// CHECK-14-NEXT:   8 | offset_to_top (-24)
-// CHECK-14-NEXT:       -- (Test7::A, 24) vtable address --
-// CHECK-14-NEXT:       -- (Test7::B2, 24) vtable address --
+// CHECK-14-NEXT:   8 | offset_to_top (-12)
+// CHECK-14-NEXT:       -- (Test7::A, 12) vtable address --
+// CHECK-14-NEXT:       -- (Test7::B2, 12) vtable address --
 // CHECK-14-NEXT:   9 | void Test7::D::f()
-// CHECK-14-NEXT:       [this adjustment: -24 non-virtual]
+// CHECK-14-NEXT:       [this adjustment: -12 non-virtual]
 //
 // CHECK-14:     VTable indices for 'Test7::D' (1 entries).
 // CHECK-14-NEXT:   1 | void Test7::D::f()
