@@ -14,6 +14,7 @@
 // RUN: FileCheck --check-prefix=CHECK-13 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-14 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-15 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-16 %s < %t
 
 namespace Test1 {
 // CHECK-1:      Vtable for 'Test1::A' (3 entries).
@@ -403,3 +404,35 @@ struct B : A {
 void B::f() { }
 
 }
+
+
+namespace Test9 {
+
+// Very simple test of vtables for virtual bases.
+struct A1 { int a; };
+struct A2 { int b; };
+
+struct B : A1, virtual A2 {
+  int b;
+};
+
+// CHECK-16:     Vtable for 'Test11::C' (8 entries).
+// CHECK-16-NEXT:   0 | vbase_offset (24)
+// CHECK-16-NEXT:   1 | vbase_offset (8)
+// CHECK-16-NEXT:   2 | Test11::C RTTI
+// CHECK-16-NEXT:   3 | offset_to_top (0)
+// CHECK-16-NEXT:       -- (Test11::C, 0) vtable address --
+// CHECK-16-NEXT:   4 | void Test11::C::f()
+// CHECK-16-NEXT:   5 | vbase_offset (16)
+// CHECK-16-NEXT:   6 | offset_to_top (-8)
+// CHECK-16-NEXT:   7 | Test11::C RTTI
+//
+// CHECK-16:     VTable indices for 'Test11::C' (1 entries).
+// CHECK-16-NEXT:   0 | void Test11::C::f()
+struct C : virtual B {
+  virtual void f();
+};
+void C::f() { }
+
+}
+
