@@ -9,7 +9,15 @@
 
 namespace Test1 {
 // CHECK-1:      Vtable for 'Test1::A' (3 entries).
-	@@ -61,4 +56,343 @@ struct A {
+// CHECK-1-NEXT:   0 | Test1::A RTTI
+// CHECK-1-NEXT:   1 | offset_to_top (0)
+// CHECK-1-NEXT:       -- (Test1::A, 0) vtable address --
+// CHECK-1-NEXT:   2 | void Test1::A::f()
+//
+// CHECK-1:      VTable indices for 'Test1::A' (1 entries).
+// CHECK-1-NEXT:   0 | void Test1::A::f()
+struct A {
+  virtual void f();
 };
 void A::f() { }
 
