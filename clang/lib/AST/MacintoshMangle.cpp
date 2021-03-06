@@ -717,7 +717,8 @@ void MacintoshMangleContextImpl::mangleCXXVTable(
 
 void MacintoshMangleContextImpl::mangleCXXVTT(
     const CXXRecordDecl *RD, raw_ostream &) {
-  llvm_unreachable("Can't mangle CXXVTT");
+  Out << "_vbtbl__";
+  RecursiveDenest(RD, 1, getASTContext(), Out);
 }
 
 void MacintoshMangleContextImpl::mangleCXXCtorVTable(
