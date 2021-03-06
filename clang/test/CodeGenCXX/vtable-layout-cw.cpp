@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -triple=powerpc-unknownn-kuribo -emit-llvm-only -fdump-vtable-layouts > %t
+// RUN: %clang_cc1 %s -triple=powerpc-gekko-ibm-kuribo-eabi -emit-llvm-only -fdump-vtable-layouts > %t
 // RUN: FileCheck --check-prefix=CHECK-1 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-2 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-3 %s < %t
