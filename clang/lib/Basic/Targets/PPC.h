@@ -366,7 +366,7 @@ public:
     case llvm::Triple::FreeBSD:
     case llvm::Triple::NetBSD:
     case llvm::Triple::Kuribo:
-      SizeType = UnsignedInt;
+      SizeType = UnsignedLong;
       PtrDiffType = SignedInt;
       IntPtrType = SignedInt;
       break;
