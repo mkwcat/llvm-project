@@ -506,6 +506,149 @@ static void MangleCallOffset(int64_t NonVirtual, int64_t Virtual,
   Out << '_';
 }
 
+static void MangleOperatorName(OverloadedOperatorKind OO, raw_ostream &Out) {
+  Out << "__";
+  
+  switch (OO) {
+  // <operator-name> ::= nw     # new
+  case OO_New: Out << "nw"; break;
+  //              ::= nwa       # new[]
+  case OO_Array_New: Out << "nwa"; break;
+  //              ::= dl        # delete
+  case OO_Delete: Out << "dl"; break;
+  //              ::= dla       # delete[]
+  case OO_Array_Delete: Out << "dla"; break;
+  //              ::= pl        # +
+  case OO_Plus:
+    Out << "pl"; break;
+  //              ::= mi        # -
+  case OO_Minus:
+    Out << "mi"; break;
+  //              ::= ml        # *
+  case OO_Star:
+    Out << "ml"; break;
+  //              ::= dv        # /
+  case OO_Slash: Out << "dv"; break;
+  //              ::= md        # %
+  case OO_Percent: Out << "md"; break;
+  //              ::= er        # ^
+  case OO_Caret: Out << "er"; break;
+  //              ::= adv       # /=
+  case OO_SlashEqual: Out << "adv"; break;
+  //              ::= ad        # &
+  case OO_Amp:
+    Out << "ad"; break;
+  //              ::= or        # |
+  case OO_Pipe: Out << "or"; break;
+  //              ::= co        # ~
+  case OO_Tilde: Out << "co"; break;
+  //              ::= nt        # !
+  case OO_Exclaim: Out << "nt"; break;
+  //              ::= as        # =
+  case OO_Equal: Out << "as"; break;
+  //              ::= lt        # <
+  case OO_Less: Out << "lt"; break;
+  //              ::= gt        # >
+  case OO_Greater: Out << "gt"; break;
+  //              ::= apl       # +=
+  case OO_PlusEqual: Out << "apl"; break;
+  //              ::= ami       # -=
+  case OO_MinusEqual: Out << "mI"; break;
+  //              ::= aml       # *=
+  case OO_StarEqual: Out << "aml"; break;
+  //              ::= amd       # %=
+  case OO_PercentEqual: Out << "amd"; break;
+  //              ::= aer       # ^=
+  case OO_CaretEqual: Out << "aer"; break;
+  //              ::= aad       # &=
+  case OO_AmpEqual: Out << "aad"; break;
+  //              ::= aor       # |=
+  case OO_PipeEqual: Out << "aor"; break;
+  //              ::= ls        # <<
+  case OO_LessLess: Out << "ls"; break;
+  //              ::= rs        # >>
+  case OO_GreaterGreater: Out << "rs"; break;
+  //              ::= ars       # >>=
+  case OO_GreaterGreaterEqual: Out << "ars"; break;
+  //              ::= als       # <<=
+  case OO_LessLessEqual: Out << "als"; break;
+
+  //              ::= eq        # ==
+  case OO_EqualEqual: Out << "eq"; break;
+  //              ::= ne        # !=
+  case OO_ExclaimEqual: Out << "ne"; break;
+  
+  //              ::= le        # <=
+  case OO_LessEqual: Out << "le"; break;
+  //              ::= ge        # >=
+  case OO_GreaterEqual: Out << "ge"; break;
+
+  //              ::= aa        # &&
+  case OO_AmpAmp: Out << "aa"; break;
+  //              ::= oo        # ||
+  case OO_PipePipe: Out << "oo"; break;
+  //              ::= pp        # ++
+  case OO_PlusPlus: Out << "pp"; break;
+  //              ::= mm        # --
+  case OO_MinusMinus: Out << "mm"; break;
+
+  //              ::= cl        # ()
+  case OO_Call: Out << "cl"; break;
+  //              ::= vc        # []
+  case OO_Subscript: Out << "vc"; break;
+  //              ::= rf        # ->
+  case OO_Arrow: Out << "rf"; break;
+  //              ::= cm        # ,
+  case OO_Comma: Out << "cm"; break;
+  //              ::= rm        # ->*
+  case OO_ArrowStar: Out << "rm"; break;
+  
+  //              ::= qu        # ?
+  // The conditional operator can't be overloaded, but we still handle it when
+  // mangling expressions.
+  case OO_Conditional: Out << "qu"; break;
+
+  // The following cases aren't specified by the Macintosh ABI or PowerPC EABI specifications:
+
+  // Proposal on cxx-abi-dev, 2015-10-21.
+  //              ::= aw        # co_await
+  case OO_Coawait: Out << "aw"; break;
+  // Proposed in cxx-abi github issue 43.
+  //              ::= ss        # <=>
+  case OO_Spaceship: Out << "ss"; break;
+
+  case OO_None:
+  case NUM_OVERLOADED_OPERATORS:
+    llvm_unreachable("Not an overloaded operator");
+  }
+}
+
+
+static void MangleOperatorName(DeclarationName Name, raw_ostream &Out) {
+  switch (Name.getNameKind()) {
+  case DeclarationName::CXXConstructorName:
+  case DeclarationName::CXXDestructorName:
+  case DeclarationName::CXXDeductionGuideName:
+  case DeclarationName::CXXUsingDirective:
+  case DeclarationName::Identifier:
+  case DeclarationName::ObjCMultiArgSelector:
+  case DeclarationName::ObjCOneArgSelector:
+  case DeclarationName::ObjCZeroArgSelector:
+    llvm_unreachable("Not an operator name");
+
+  case DeclarationName::CXXConversionFunctionName:
+  case DeclarationName::CXXLiteralOperatorName:
+    // TODO: Implement conversion and literal operator names
+    return;
+
+  case DeclarationName::CXXOperatorName:
+    MangleOperatorName(Name.getCXXOverloadedOperator(), Out);
+    break;
+  }
+}
+
+
+
 /// Mangles the name of the declaration D and emits that name to the given
 /// output stream.
 ///
@@ -530,6 +673,8 @@ void MacintoshMangleContextImpl::mangleCXXName(GlobalDecl GD,
       Out << "__ct";
     else if (isa<CXXDestructorDecl>(D))
       Out << "__dt";
+    else if (MD->getNameInfo().getName().getNameKind() == DeclarationName::CXXOperatorName)
+      MangleOperatorName(MD->getNameInfo().getName(), Out);
     else
       MD->getNameInfo().printName(Out, PrintingPolicy(LangOptions()));
     if (const TemplateArgumentList *TArgs = MD->getTemplateSpecializationArgs())
@@ -555,7 +700,10 @@ void MacintoshMangleContextImpl::mangleCXXName(GlobalDecl GD,
 
   } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     FD = FD->getCanonicalDecl();
-    FD->getNameInfo().printName(Out, PrintingPolicy(LangOptions()));
+    if (FD->getNameInfo().getName().getNameKind() == DeclarationName::CXXOperatorName)
+      MangleOperatorName(FD->getNameInfo().getName(), Out);
+    else
+      FD->getNameInfo().printName(Out, PrintingPolicy(LangOptions()));
     if (const TemplateArgumentList *TArgs = FD->getTemplateSpecializationArgs())
       MangleTemplateSpecialization(*TArgs, getASTContext(), Out);
     else if (DependentFunctionTemplateSpecializationInfo *DepArgs =
