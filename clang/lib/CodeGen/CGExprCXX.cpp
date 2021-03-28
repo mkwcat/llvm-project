@@ -1912,7 +1912,7 @@ static bool EmitObjectDelete(CodeGenFunction &CGF,
   const CXXDestructorDecl *Dtor = nullptr;
   if (const RecordType *RT = ElementType->getAs<RecordType>()) {
     CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
-    if (RD->hasDefinition() && !RD->hasTrivialDestructor()) {
+    if (RD->hasDefinition() && (!RD->hasTrivialDestructor() || CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)) {
       Dtor = RD->getDestructor();
 
       if (Dtor->isVirtual()) {

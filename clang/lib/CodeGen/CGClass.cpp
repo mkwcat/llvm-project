@@ -1484,13 +1484,41 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       auto *BaseClassDecl =
           cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
 
-      // Ignore trivial destructors.
-      if (BaseClassDecl->hasTrivialDestructor())
-        continue;
 
       CallBaseDtor BaseCall(BaseClassDecl, false);
       BaseCall.Emit(*this, /*flags*/{});
     }
+
+    // emit the dtor body
+
+    // If the body is a function-try-block, enter the try before
+    // anything else.
+    bool isTryBody = (Body && isa<CXXTryStmt>(Body));
+    if (isTryBody)
+        EnterCXXTryStmt(*cast<CXXTryStmt>(Body), true);
+    EmitAsanPrologueOrEpilogue(false);
+
+    // Initialize the vtable pointers before entering the body.
+    if (!CanSkipVTablePointerInitialization(*this, Dtor)) {
+      // Insert the llvm.launder.invariant.group intrinsic before initializing
+      // the vptrs to cancel any previous assumptions we might have made.
+      if (CGM.getCodeGenOpts().StrictVTablePointers &&
+          CGM.getCodeGenOpts().OptimizationLevel > 0)
+        CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
+      InitializeVTablePointers(Dtor->getParent());
+    }
+    if (isTryBody)
+      EmitStmt(cast<CXXTryStmt>(Body)->getTryBlock());
+    else if (Body)
+      EmitStmt(Body);
+    else {
+      assert(Dtor->isImplicit() && "bodyless dtor not implicit");
+      // nothing to do besides what's in the epilogue
+    }
+    // -fapple-kext must inline any call to this dtor into
+    // the caller's body.
+    if (getLangOpts().AppleKext)
+      CurFn->addFnAttr(llvm::Attribute::AlwaysInline);
 
     llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
     llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
@@ -1508,9 +1536,6 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
       auto *BaseClassDecl =
           cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
 
-      // Ignore trivial destructors.
-      if (BaseClassDecl->hasTrivialDestructor())
-        continue;
 
       CallBaseDtor BaseCall(BaseClassDecl, true);
       BaseCall.Emit(*this, /*flags*/{});
