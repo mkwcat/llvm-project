@@ -842,7 +842,13 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   EmitAsanPrologueOrEpilogue(true);
   const CXXConstructorDecl *Ctor = cast<CXXConstructorDecl>(CurGD.getDecl());
   CXXCtorType CtorType = CurGD.getCtorType();
-
+  llvm::outs() << CtorType << "ctor type\n";
+  llvm::outs() << Ctor->getNameAsString() << "ctor Name\n";
+  if (CGM.getTarget().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (CtorType == Ctor_Base) {
+      return;
+    }
+  }
   assert((CGM.getTarget().getCXXABI().hasConstructorVariants() ||
           CtorType == Ctor_Complete) &&
          "can only generate complete ctor for this ABI");
