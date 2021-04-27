@@ -85,8 +85,8 @@ static lto::Config createConfig() {
   c.Options.EmitAddrsig = true;
 
   // Always emit a section per function/datum with LTO.
-  c.Options.FunctionSections = true;
-  c.Options.DataSections = true;
+  c.Options.FunctionSections = false;
+  c.Options.DataSections = false;
 
   // Check if basic block sections must be used.
   // Allowed values for --lto-basic-block-sections are "all", "labels",
