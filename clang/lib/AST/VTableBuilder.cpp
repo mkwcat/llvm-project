@@ -1118,6 +1118,9 @@ private:
   /// Components - The components of the vtable being built.
   SmallVector<VTableComponent, 64> Components;
 
+  /// DeferredComponents - The components of the vtable being built.
+  SmallVector<VTableComponent, 64> DeferredComponents;
+
   /// AddressPoints - Address points for the vtable being built.
   AddressPointsMapTy AddressPoints;
 
@@ -1206,6 +1209,11 @@ private:
   /// components vector.
   void AddMethod(const CXXMethodDecl *MD, ReturnAdjustment ReturnAdjustment);
 
+
+  /// AddDeferredMethod - Add a single virtual member function to the vtable
+  /// components vector.
+  void AddDeferredMethod(const CXXMethodDecl *MD, ReturnAdjustment ReturnAdjustment);
+
   /// IsOverriderUsed - Returns whether the overrider will ever be used in this
   /// part of the vtable.
   ///
@@ -1237,6 +1245,10 @@ private:
                   const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
                   CharUnits FirstBaseOffsetInLayoutClass,
                   PrimaryBasesSetVectorTy &PrimaryBases);
+
+  void AddDeferredMethods(BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
+                  const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
+                  CharUnits FirstBaseOffsetInLayoutClass);
 
   // LayoutVTable - Layout the vtable for the given base class, including its
   // secondary vtables and any vtables for virtual bases.
@@ -1839,7 +1851,7 @@ void ItaniumVTableBuilder::AddMethods(
                      ThunkInfo(ThisAdjustment, ReturnAdjustment));
           }
         }
-
+        
         continue;
       }
     }
@@ -4388,6 +4400,26 @@ void CodeWarriorVtableBuilder::AddMethod(const CXXMethodDecl *MD,
   }
 }
 
+
+void CodeWarriorVtableBuilder::AddDeferredMethod(const CXXMethodDecl *MD,
+                                     ReturnAdjustment ReturnAdjustment) {
+  if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
+    assert(ReturnAdjustment.isEmpty() &&
+           "Destructor can't have return adjustment!");
+
+    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
+      // Add both the complete destructor and the deleting destructor.
+      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
+    Components.push_back(VTableComponent::MakeDeletingDtor(DD));
+  } else {
+    // Add the return adjustment if necessary.
+    if (!ReturnAdjustment.isEmpty())
+      VTableThunks[Components.size()].Return = ReturnAdjustment;
+    // Add the function.
+    DeferredComponents.push_back(VTableComponent::MakeFunction(MD));
+  }
+}
+
 bool CodeWarriorVtableBuilder::IsOverriderUsed(
     const CXXMethodDecl *Overrider, CharUnits BaseOffsetInLayoutClass,
     const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
@@ -4451,6 +4483,19 @@ bool CodeWarriorVtableBuilder::IsOverriderUsed(
 }
 
 
+void CodeWarriorVtableBuilder::AddDeferredMethods(
+    BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
+    const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
+    CharUnits FirstBaseOffsetInLayoutClass) {
+  for (unsigned I = 0, E = DeferredComponents.size(); I != E; ++I) {
+    const VTableComponent &Component = DeferredComponents[I];
+    MethodVTableIndices[Component.getFunctionDecl()] = Components.size() - 2;    
+    Components.push_back(Component);
+  }
+  DeferredComponents.clear();
+}
+
+
 void CodeWarriorVtableBuilder::AddMethods(
     BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
     const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
@@ -4466,6 +4511,7 @@ void CodeWarriorVtableBuilder::AddMethods(
   //   between their return types does not require an adjustment.
 
   const CXXRecordDecl *RD = Base.getBase();
+
   const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
 
   if (const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase()) {
@@ -4493,7 +4539,7 @@ void CodeWarriorVtableBuilder::AddMethods(
       PrimaryBaseOffset = Base.getBaseOffset();
       PrimaryBaseOffsetInLayoutClass = BaseOffsetInLayoutClass;
     }
-
+    llvm::outs() << "Recursion" << RD->getQualifiedNameAsString() << "\n";
     AddMethods(BaseSubobject(PrimaryBase, PrimaryBaseOffset),
                PrimaryBaseOffsetInLayoutClass, FirstBaseInPrimaryBaseChain,
                FirstBaseOffsetInLayoutClass, PrimaryBases);
@@ -4569,7 +4615,6 @@ void CodeWarriorVtableBuilder::AddMethods(
         continue;
       }
     }
-
     if (MD->isImplicit())
       NewImplicitVirtualFunctions.push_back(MD);
     else
@@ -4596,6 +4641,20 @@ void CodeWarriorVtableBuilder::AddMethods(
                              NewImplicitVirtualFunctions.end());
 
   for (const CXXMethodDecl *MD : NewVirtualFunctions) {
+
+
+  // Don't emit a secondary vtable for a primary base. We might however want
+  // to emit secondary vtables for other bases of this base.
+  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
+  const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
+  bool shouldBeDeferred = false;
+  for (const auto &B : RD->bases()) {
+    const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
+    if (BaseDecl != PrimaryBase) {
+      shouldBeDeferred = true;
+    }
+  }
+
     // Get the final overrider.
     FinalOverriders::OverriderInfo Overrider =
       Overriders.getOverrider(MD, Base.getBaseOffset());
@@ -4606,6 +4665,7 @@ void CodeWarriorVtableBuilder::AddMethods(
 
     assert(!MethodInfoMap.count(MD) &&
            "Should not have method info for this method yet!");
+
     MethodInfoMap.insert(std::make_pair(MD, MethodInfo));
 
     // Check if this overrider is going to be used.
@@ -4628,7 +4688,13 @@ void CodeWarriorVtableBuilder::AddMethods(
     ReturnAdjustment ReturnAdjustment =
       ComputeReturnAdjustment(ReturnAdjustmentOffset);
 
-    AddMethod(Overrider.Method, ReturnAdjustment);
+  if (!shouldBeDeferred) {
+     AddMethod(Overrider.Method, ReturnAdjustment);
+  } else {
+    AddDeferredMethod(Overrider.Method, ReturnAdjustment);
+  }
+
+   
   }
 }
 
@@ -4764,6 +4830,9 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
 
   // Layout secondary vtables.
   LayoutSecondaryVTables(Base, BaseIsMorallyVirtual, OffsetInLayoutClass);
+  // add
+  AddDeferredMethods(Base, OffsetInLayoutClass,
+             Base.getBase(), OffsetInLayoutClass);
 }
 
 void
