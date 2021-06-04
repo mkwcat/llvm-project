@@ -1211,9 +1211,6 @@ private:
 
 
   /// AddDeferredMethod - Add a single virtual member function to the vtable
-  /// components vector.
-  void AddDeferredMethod(const CXXMethodDecl *MD, ReturnAdjustment ReturnAdjustment);
-
   /// IsOverriderUsed - Returns whether the overrider will ever be used in this
   /// part of the vtable.
   ///
@@ -4223,10 +4220,6 @@ void CodeWarriorVtableBuilder::ComputeThisAdjustments() {
     // Add it.
     VTableThunks[VTableIndex].This = ThisAdjustment;
 
-    if (isa<CXXDestructorDecl>(MD)) {
-      // Add an adjustment for the deleting destructor as well.
-      VTableThunks[VTableIndex + 1].This = ThisAdjustment;
-    }
   }
 
   /// Clear the method info map.
@@ -4386,9 +4379,6 @@ void CodeWarriorVtableBuilder::AddMethod(const CXXMethodDecl *MD,
     assert(ReturnAdjustment.isEmpty() &&
            "Destructor can't have return adjustment!");
 
-    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
-      // Add both the complete destructor and the deleting destructor.
-      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
     Components.push_back(VTableComponent::MakeDeletingDtor(DD));
   } else {
     // Add the return adjustment if necessary.
@@ -4397,26 +4387,6 @@ void CodeWarriorVtableBuilder::AddMethod(const CXXMethodDecl *MD,
 
     // Add the function.
     Components.push_back(VTableComponent::MakeFunction(MD));
-  }
-}
-
-
-void CodeWarriorVtableBuilder::AddDeferredMethod(const CXXMethodDecl *MD,
-                                     ReturnAdjustment ReturnAdjustment) {
-  if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
-    assert(ReturnAdjustment.isEmpty() &&
-           "Destructor can't have return adjustment!");
-
-    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
-      // Add both the complete destructor and the deleting destructor.
-      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
-    Components.push_back(VTableComponent::MakeDeletingDtor(DD));
-  } else {
-    // Add the return adjustment if necessary.
-    if (!ReturnAdjustment.isEmpty())
-      VTableThunks[Components.size()].Return = ReturnAdjustment;
-    // Add the function.
-    DeferredComponents.push_back(VTableComponent::MakeFunction(MD));
   }
 }
 
@@ -4482,20 +4452,6 @@ bool CodeWarriorVtableBuilder::IsOverriderUsed(
   return OverridesIndirectMethodInBases(Overrider, PrimaryBases);
 }
 
-
-void CodeWarriorVtableBuilder::AddDeferredMethods(
-    BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
-    const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
-    CharUnits FirstBaseOffsetInLayoutClass) {
-  for (unsigned I = 0, E = DeferredComponents.size(); I != E; ++I) {
-    const VTableComponent &Component = DeferredComponents[I];
-    MethodVTableIndices[Component.getFunctionDecl()] = Components.size() - 2;    
-    Components.push_back(Component);
-  }
-  DeferredComponents.clear();
-}
-
-
 void CodeWarriorVtableBuilder::AddMethods(
     BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
     const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
@@ -4539,7 +4495,6 @@ void CodeWarriorVtableBuilder::AddMethods(
       PrimaryBaseOffset = Base.getBaseOffset();
       PrimaryBaseOffsetInLayoutClass = BaseOffsetInLayoutClass;
     }
-    llvm::outs() << "Recursion" << RD->getQualifiedNameAsString() << "\n";
     AddMethods(BaseSubobject(PrimaryBase, PrimaryBaseOffset),
                PrimaryBaseOffsetInLayoutClass, FirstBaseInPrimaryBaseChain,
                FirstBaseOffsetInLayoutClass, PrimaryBases);
@@ -4639,21 +4594,13 @@ void CodeWarriorVtableBuilder::AddMethods(
       });
   NewVirtualFunctions.append(NewImplicitVirtualFunctions.begin(),
                              NewImplicitVirtualFunctions.end());
+   if (RD->getNumBases() > 1) {
+      llvm::outs() << RD->getQualifiedNameAsString() <<" Secondary\n";
+      LayoutSecondaryVTables(Base, false,
+                             BaseOffsetInLayoutClass);
+    }
 
   for (const CXXMethodDecl *MD : NewVirtualFunctions) {
-
-
-  // Don't emit a secondary vtable for a primary base. We might however want
-  // to emit secondary vtables for other bases of this base.
-  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
-  const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
-  bool shouldBeDeferred = false;
-  for (const auto &B : RD->bases()) {
-    const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
-    if (BaseDecl != PrimaryBase) {
-      shouldBeDeferred = true;
-    }
-  }
 
     // Get the final overrider.
     FinalOverriders::OverriderInfo Overrider =
@@ -4687,15 +4634,11 @@ void CodeWarriorVtableBuilder::AddMethods(
 
     ReturnAdjustment ReturnAdjustment =
       ComputeReturnAdjustment(ReturnAdjustmentOffset);
-
-  if (!shouldBeDeferred) {
+    
      AddMethod(Overrider.Method, ReturnAdjustment);
-  } else {
-    AddDeferredMethod(Overrider.Method, ReturnAdjustment);
-  }
 
-   
   }
+      // Layout secondary vtables.
 }
 
 void CodeWarriorVtableBuilder::LayoutVTable() {
@@ -4771,6 +4714,7 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
              Base.getBase(), OffsetInLayoutClass,
              PrimaryBases);
 
+
   const CXXRecordDecl *RD = Base.getBase();
   if (RD == MostDerivedClass) {
     assert(MethodVTableIndices.empty());
@@ -4828,11 +4772,6 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
     RD = PrimaryBase;
   }
 
-  // Layout secondary vtables.
-  LayoutSecondaryVTables(Base, BaseIsMorallyVirtual, OffsetInLayoutClass);
-  // add
-  AddDeferredMethods(Base, OffsetInLayoutClass,
-             Base.getBase(), OffsetInLayoutClass);
 }
 
 void
@@ -4876,11 +4815,8 @@ CodeWarriorVtableBuilder::LayoutSecondaryVTables(BaseSubobject Base,
     CharUnits BaseOffsetInLayoutClass =
       OffsetInLayoutClass + RelativeBaseOffset;
 
-    // Don't emit a secondary vtable for a primary base. We might however want
-    // to emit secondary vtables for other bases of this base.
+    // Don't emit a secondary vtable for a primary base. Since we know there's two bases we'll just continue
     if (BaseDecl == PrimaryBase) {
-      LayoutSecondaryVTables(BaseSubobject(BaseDecl, BaseOffset),
-                             BaseIsMorallyVirtual, BaseOffsetInLayoutClass);
       continue;
     }
 
