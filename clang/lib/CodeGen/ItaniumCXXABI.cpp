@@ -4929,7 +4929,6 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   } else {
     ThisTy = D->getDestroyedType();
   }
-
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
   return nullptr;

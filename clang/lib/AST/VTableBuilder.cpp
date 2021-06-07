@@ -1118,9 +1118,6 @@ private:
   /// Components - The components of the vtable being built.
   SmallVector<VTableComponent, 64> Components;
 
-  /// DeferredComponents - The components of the vtable being built.
-  SmallVector<VTableComponent, 64> DeferredComponents;
-
   /// AddressPoints - Address points for the vtable being built.
   AddressPointsMapTy AddressPoints;
 
@@ -1210,7 +1207,6 @@ private:
   void AddMethod(const CXXMethodDecl *MD, ReturnAdjustment ReturnAdjustment);
 
 
-  /// AddDeferredMethod - Add a single virtual member function to the vtable
   /// IsOverriderUsed - Returns whether the overrider will ever be used in this
   /// part of the vtable.
   ///
@@ -1241,11 +1237,9 @@ private:
   void AddMethods(BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
                   const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
                   CharUnits FirstBaseOffsetInLayoutClass,
-                  PrimaryBasesSetVectorTy &PrimaryBases);
+                  PrimaryBasesSetVectorTy &PrimaryBases,
+                  bool BaseIsMorallyVirtual);
 
-  void AddDeferredMethods(BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
-                  const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
-                  CharUnits FirstBaseOffsetInLayoutClass);
 
   // LayoutVTable - Layout the vtable for the given base class, including its
   // secondary vtables and any vtables for virtual bases.
@@ -2169,6 +2163,8 @@ void ItaniumVTableBuilder::LayoutVTablesForVirtualBases(
   //   Then come the virtual base virtual tables, also in inheritance graph
   //   order, and again excluding primary bases (which share virtual tables with
   //   the classes for which they are primary).
+
+
   for (const auto &B : RD->bases()) {
     const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
 
@@ -4223,7 +4219,7 @@ void CodeWarriorVtableBuilder::ComputeThisAdjustments() {
   }
 
   /// Clear the method info map.
-  MethodInfoMap.clear();
+  // MethodInfoMap.clear();
 
   if (isBuildingConstructorVTable()) {
     // We don't need to store thunk information for construction vtables.
@@ -4456,7 +4452,8 @@ void CodeWarriorVtableBuilder::AddMethods(
     BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
     const CXXRecordDecl *FirstBaseInPrimaryBaseChain,
     CharUnits FirstBaseOffsetInLayoutClass,
-    PrimaryBasesSetVectorTy &PrimaryBases) {
+    PrimaryBasesSetVectorTy &PrimaryBases,
+    bool BaseIsMorallyVirtual) {
   // Itanium C++ ABI 2.5.2:
   //   The order of the virtual function pointers in a virtual table is the
   //   order of declaration of the corresponding member functions in the class.
@@ -4497,7 +4494,7 @@ void CodeWarriorVtableBuilder::AddMethods(
     }
     AddMethods(BaseSubobject(PrimaryBase, PrimaryBaseOffset),
                PrimaryBaseOffsetInLayoutClass, FirstBaseInPrimaryBaseChain,
-               FirstBaseOffsetInLayoutClass, PrimaryBases);
+               FirstBaseOffsetInLayoutClass, PrimaryBases, BaseIsMorallyVirtual);
 
     if (!PrimaryBases.insert(PrimaryBase))
       llvm_unreachable("Found a duplicate primary base!");
@@ -4595,8 +4592,7 @@ void CodeWarriorVtableBuilder::AddMethods(
   NewVirtualFunctions.append(NewImplicitVirtualFunctions.begin(),
                              NewImplicitVirtualFunctions.end());
    if (RD->getNumBases() > 1) {
-      llvm::outs() << RD->getQualifiedNameAsString() <<" Secondary\n";
-      LayoutSecondaryVTables(Base, false,
+      LayoutSecondaryVTables(Base, BaseIsMorallyVirtual,
                              BaseOffsetInLayoutClass);
     }
 
@@ -4636,9 +4632,8 @@ void CodeWarriorVtableBuilder::AddMethods(
       ComputeReturnAdjustment(ReturnAdjustmentOffset);
     
      AddMethod(Overrider.Method, ReturnAdjustment);
-
   }
-      // Layout secondary vtables.
+
 }
 
 void CodeWarriorVtableBuilder::LayoutVTable() {
@@ -4661,6 +4656,7 @@ void CodeWarriorVtableBuilder::LayoutVTable() {
   bool IsAppleKext = Context.getLangOpts().AppleKext;
   if (IsAppleKext)
     Components.push_back(VTableComponent::MakeVCallOffset(CharUnits::Zero()));
+  MethodInfoMap.clear();
 }
 
 void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
@@ -4712,7 +4708,7 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
   PrimaryBasesSetVectorTy PrimaryBases;
   AddMethods(Base, OffsetInLayoutClass,
              Base.getBase(), OffsetInLayoutClass,
-             PrimaryBases);
+             PrimaryBases, BaseIsMorallyVirtual);
 
 
   const CXXRecordDecl *RD = Base.getBase();
@@ -4722,17 +4718,10 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
       const CXXMethodDecl *MD = I.first;
       const MethodInfo &MI = I.second;
       if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
-        if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
           MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
               = MI.VTableIndex - AddressPoint;
           MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
               = MI.VTableIndex - AddressPoint;
-        } else {
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
-              = MI.VTableIndex - AddressPoint;
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
-              = MI.VTableIndex + 1 - AddressPoint;
-        }
       } else {
         MethodVTableIndices[MD] = MI.VTableIndex - AddressPoint;
       }
