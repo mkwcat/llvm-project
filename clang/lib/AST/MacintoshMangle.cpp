@@ -786,7 +786,7 @@ void MacintoshMangleContextImpl::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
                    ThisAdjustment.Virtual.Itanium.VCallOffsetOffset,
                    Out);
 
-  mangleCXXName(DD, Out);
+  mangleCXXName(GlobalDecl(DD, Type), Out);
 }
 
 /// Returns the mangled name for a guard variable for the passed in VarDecl.
