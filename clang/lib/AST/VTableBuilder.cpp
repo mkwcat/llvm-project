@@ -1287,6 +1287,7 @@ public:
   /// Component indices of the first component of each of the vtables in the
   /// vtable group.
   SmallVector<size_t, 4> VTableIndices;
+  SmallVector<size_t, 4> VTableIndicesTemp;
 
   CodeWarriorVtableBuilder(ItaniumVTableContext &VTables,
                        const CXXRecordDecl *MostDerivedClass,
@@ -4666,7 +4667,7 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
 
   unsigned VTableIndex = Components.size();
   VTableIndices.push_back(VTableIndex);
-
+  VTableIndicesTemp.push_back(VTableIndex);
   // Add vcall and vbase offsets for this vtable.
   VCallAndVBaseOffsetBuilder Builder(
       VTables, MostDerivedClass, LayoutClass, &Overriders, Base,
@@ -4736,12 +4737,11 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
     AddressPoints.insert(
         std::make_pair(BaseSubobject(RD, OffsetInLayoutClass),
                        VTableLayout::AddressPointLocation{
-                           unsigned(VTableIndices.size() - 1),
+                           unsigned(VTableIndicesTemp.size() - 1),
                            unsigned(AddressPoint - VTableIndex)}));
 
     const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
     const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
-
     if (!PrimaryBase)
       break;
 
@@ -4760,7 +4760,7 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
 
     RD = PrimaryBase;
   }
-
+  VTableIndicesTemp.pop_back();
 }
 
 void

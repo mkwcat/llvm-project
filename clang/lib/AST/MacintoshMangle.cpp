@@ -770,7 +770,7 @@ void MacintoshMangleContextImpl::mangleThunk(const CXXMethodDecl *MD,
                      Thunk.Return.Virtual.Itanium.VBaseOffsetOffset,
                      Out);
 
-  mangleCXXName(MD, Out);
+  mangleCXXName(GlobalDecl(MD), Out);
 }
 
 void MacintoshMangleContextImpl::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
@@ -785,7 +785,6 @@ void MacintoshMangleContextImpl::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
   MangleCallOffset(ThisAdjustment.NonVirtual,
                    ThisAdjustment.Virtual.Itanium.VCallOffsetOffset,
                    Out);
-
   mangleCXXName(GlobalDecl(DD, Type), Out);
 }
 
