@@ -485,23 +485,10 @@ static void MangleNumber(int64_t Number, raw_ostream &Out) {
 
 static void MangleCallOffset(int64_t NonVirtual, int64_t Virtual,
                              raw_ostream &Out) {
-  //  <call-offset>  ::= h <nv-offset> _
-  //                 ::= v <v-offset> _
-  //  <nv-offset>    ::= <offset number>        # non-virtual base
-  //  <v-offset>     ::= <offset number> _ <virtual offset number>
-  //                      # virtual base, with vcall offset
-  if (!Virtual) {
-    Out << 'h';
-    MangleNumber(NonVirtual, Out);
-    Out << '_';
-    return;
-  }
-
-  Out << 'v';
+  //  <call-offset>  ::= @ <nv-offset> @
+  Out << '@';
   MangleNumber(NonVirtual, Out);
-  Out << '_';
-  MangleNumber(Virtual, Out);
-  Out << '_';
+  Out << '@';
 }
 
 static void MangleOperatorName(OverloadedOperatorKind OO, raw_ostream &Out) {
@@ -755,7 +742,6 @@ void MacintoshMangleContextImpl::mangleThunk(const CXXMethodDecl *MD,
 
   assert(!isa<CXXDestructorDecl>(MD) &&
          "Use mangleCXXDtor for destructor decls!");
-  Out << "T";
 
   // Mangle the 'this' pointer adjustment.
   MangleCallOffset(Thunk.This.NonVirtual,
@@ -775,10 +761,6 @@ void MacintoshMangleContextImpl::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
                                                     CXXDtorType Type,
                                                     const ThisAdjustment &ThisAdjustment,
                                                     raw_ostream &Out) {
-  //  <special-name> ::= T <call-offset> <base encoding>
-  //                      # base is the nominal target function of thunk
-  Out << "T";
-
   // Mangle the 'this' pointer adjustment.
   MangleCallOffset(ThisAdjustment.NonVirtual,
                    ThisAdjustment.Virtual.Itanium.VCallOffsetOffset,

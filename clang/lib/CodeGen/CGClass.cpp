@@ -842,8 +842,6 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   EmitAsanPrologueOrEpilogue(true);
   const CXXConstructorDecl *Ctor = cast<CXXConstructorDecl>(CurGD.getDecl());
   CXXCtorType CtorType = CurGD.getCtorType();
-  llvm::outs() << CtorType << "ctor type\n";
-  llvm::outs() << Ctor->getNameAsString() << "ctor Name\n";
   if (CGM.getTarget().getCXXABI() == TargetCXXABI::CodeWarrior) {
     if (CtorType == Ctor_Base) {
       return;
@@ -1892,7 +1890,6 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
 
   // The deleting-destructor phase just needs to call the appropriate
   // operator delete that Sema picked up.
-  llvm::outs() << DD->getNameAsString() << " " << DtorType << "\n";
   if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
     if (DtorType == Dtor_Deleting) {
       assert(DD->getOperatorDelete() &&

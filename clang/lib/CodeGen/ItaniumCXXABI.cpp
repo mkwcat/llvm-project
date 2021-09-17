@@ -544,6 +544,14 @@ public:
     CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
   }
 
+  void adjustCallArgsForDestructorThunk(CodeGenFunction &CGF, GlobalDecl GD,
+                                      CallArgList &CallArgs) override {
+    assert(GD.getDtorType() == Dtor_Deleting &&
+            "Only deleting destructor thunks are available in this ABI");
+    CallArgs.add(RValue::get(getStructorImplicitParamValue(CGF)),
+                  getContext().IntTy);
+  }
+
   void EmitDestructorCall(CodeGenFunction &CGF,
                           const CXXDestructorDecl *DD,
                           CXXDtorType Type, bool ForVirtualBase,
