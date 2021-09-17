@@ -354,11 +354,9 @@ static void RecursiveDenest(const DeclContext *DCtx,
   if (Prefix && isa<NamedDecl>(Prefix))
     RecursiveDenest(Prefix, Count + 1, Ctx, Out);
   else if (Count > 1)
-	if(!DCtx->isNamespace()){
 		Out << 'Q' << Count;
-	}
+    
 	if(DCtx->isNamespace()){
-        Out << 'Q' << Count;
 		PrintNameSpace(Named, Ctx, Out);
 	}else{
 		PrintNamedDecl(Named, Ctx, Out);
