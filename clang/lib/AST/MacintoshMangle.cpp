@@ -476,7 +476,6 @@ static bool PrintType(QualType T, const ASTContext &Ctx,
 static void MangleNumber(int64_t Number, raw_ostream &Out) {
   //  <number> ::= [n] <non-negative decimal integer>
   if (Number < 0) {
-    Out << 'n';
     Number = -Number;
   }
 
