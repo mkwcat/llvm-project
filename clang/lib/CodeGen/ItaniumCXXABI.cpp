@@ -564,14 +564,6 @@ public:
                                          Address This,
                                          DeleteOrMemberCallExpr E) override;
 
-  void adjustCallArgsForDestructorThunk(CodeGenFunction &CGF, GlobalDecl GD,
-                                        CallArgList &CallArgs) override {
-    assert(GD.getDtorType() == Dtor_Deleting &&
-           "Only deleting destructor thunks are available in this ABI");
-    CallArgs.add(RValue::get(getStructorImplicitParamValue(CGF)),
-                 getContext().IntTy);
-  }
-
 
 
   llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
