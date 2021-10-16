@@ -4242,8 +4242,9 @@ void CodeWarriorVtableBuilder::ComputeThisAdjustments() {
       MD = Component.getDestructorDecl();
       break;
     case VTableComponent::CK_DeletingDtorPointer:
-      // We've already added the thunk when we saw the complete dtor pointer.
-      continue;
+      // Since we don't see the pointer
+      MD = Component.getDestructorDecl();
+      break;
     }
 
     if (MD->getParent() == MostDerivedClass)
