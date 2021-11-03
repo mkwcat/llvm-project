@@ -1060,6 +1060,9 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
   llvm::outs() << getDataSize().getQuantity() << "\n";
   } else if (RD->isDynamicClass()) {
     HasOwnVFPtr = true;
+    // The Macintosh ABI's placement of virtual tables is not always at the start of a struct/class,
+    // but at the declaration of the first virtual member function, thus in this case we defer
+    // setting the placement until later where we know the order of declarations.
     if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
       assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
       CharUnits PtrWidth =
