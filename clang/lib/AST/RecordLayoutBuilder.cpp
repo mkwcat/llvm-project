@@ -1058,20 +1058,22 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
   // If this class needs a vtable/vf-table and didn't get one from a
   // primary base, add it in now.
   llvm::outs() << getDataSize().getQuantity() << "\n";
-  } else if (RD->isDynamicClass() && Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
-    assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
-    CharUnits PtrWidth =
-      Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
-    CharUnits PtrAlign =
-      Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerAlign(0));
-    EnsureVTablePointerAlignment(PtrAlign);
+  } else if (RD->isDynamicClass()) {
     HasOwnVFPtr = true;
+    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
+      assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
+      CharUnits PtrWidth =
+        Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
+      CharUnits PtrAlign =
+        Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerAlign(0));
+      EnsureVTablePointerAlignment(PtrAlign);
 
-    assert(!IsUnion && "Unions cannot be dynamic classes.");
-    HandledFirstNonOverlappingEmptyField = true;
+      assert(!IsUnion && "Unions cannot be dynamic classes.");
+      HandledFirstNonOverlappingEmptyField = true;
 
-    setSize(getSize() + PtrWidth);
-    setDataSize(getSize());
+      setSize(getSize() + PtrWidth);
+      setDataSize(getSize());
+    }
   }
 
   // Now lay out the non-virtual bases.
@@ -1470,7 +1472,7 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
           continue;
         }
       }
-      if (!HasOwnVFPtr && !HasEmittedVtable) {
+      if (HasOwnVFPtr && !HasEmittedVtable) {
         const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
         if (MD && ItaniumVTableContext::hasVtableSlot(MD)) {
           {
