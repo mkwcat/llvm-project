@@ -1467,7 +1467,13 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
       llvm::outs() << "\n";
 
       auto Next(I);
-      ++Next;
+      
+      // Careful, the decls range isn't filtered to instances of FieldDecl,
+      // like the path above.
+      do {
+        ++Next;
+      } while (Next != End && !isa<FieldDecl>(*Next));
+      
       {
         const FieldDecl *FD = dyn_cast<FieldDecl>(*I);
         if (FD) {
