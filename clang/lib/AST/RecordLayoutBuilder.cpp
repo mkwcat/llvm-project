@@ -1057,7 +1057,8 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
 
   // If this class needs a vtable/vf-table and didn't get one from a
   // primary base, add it in now.
-  } else if (RD->isDynamicClass()) {
+  llvm::outs() << getDataSize().getQuantity() << "\n";
+  } else if (RD->isDynamicClass() && Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
     assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
     CharUnits PtrWidth =
       Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
@@ -1444,13 +1445,54 @@ void ItaniumRecordLayoutBuilder::Layout(const ObjCInterfaceDecl *D) {
 void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
   // Layout each field, for now, just sequentially, respecting alignment.  In
   // the future, this will need to be tweakable by targets.
+  llvm::outs() << getDataSize().getQuantity() << "\n";
   bool InsertExtraPadding = D->mayInsertExtraPadding(/*EmitRemark=*/true);
   bool HasFlexibleArrayMember = D->hasFlexibleArrayMember();
-  for (auto I = D->field_begin(), End = D->field_end(); I != End; ++I) {
-    auto Next(I);
-    ++Next;
-    LayoutField(*I,
-                InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+  if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
+    for (auto I = D->field_begin(), End = D->field_end(); I != End; ++I) {
+      auto Next(I);
+      ++Next;
+      LayoutField(*I,
+                  InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+    }
+  } else {
+    bool HasEmittedVtable = false;
+    for (auto I = D->decls_begin(), End = D->decls_end(); I != End; ++I) {
+      I->getCanonicalDecl()->print(llvm::outs());
+      llvm::outs() << "\n";
+
+      auto Next(I);
+      ++Next;
+      {
+        const FieldDecl *FD = dyn_cast<FieldDecl>(*I);
+        if (FD) {
+          LayoutField(FD, InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+          continue;
+        }
+      }
+      if (!HasOwnVFPtr && !HasEmittedVtable) {
+        const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
+        if (MD && ItaniumVTableContext::hasVtableSlot(MD)) {
+          {
+            llvm::outs() << "\n\n---" << MD->getNameAsString() << " is a VFunc " << DataSize << " " << getDataSize().getQuantity() << "---\n\n";
+            CharUnits PtrWidth =
+              Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
+            CharUnits PtrAlign =
+              Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerAlign(0));
+            EnsureVTablePointerAlignment(PtrAlign);
+            HasOwnVFPtr = true;
+
+            assert(!IsUnion && "Unions cannot be dynamic classes.");
+            HandledFirstNonOverlappingEmptyField = true;
+
+            setSize(getSize() + PtrWidth);
+            setDataSize(getSize());
+          }
+          HasEmittedVtable = true;
+          continue;
+        }
+      }
+    }
   }
 }
 
