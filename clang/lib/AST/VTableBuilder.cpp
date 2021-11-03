@@ -2012,11 +2012,27 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
 
   // Add all address points.
   while (true) {
-    AddressPoints.insert(
-        std::make_pair(BaseSubobject(RD, OffsetInLayoutClass),
-                       VTableLayout::AddressPointLocation{
-                           unsigned(VTableIndices.size() - 1),
-                           unsigned(AddressPoint - VTableIndex)}));
+    if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior &&
+        !VTableIndices.empty()) {
+      // No idea if this is valid or not
+      assert(VTableIndices.size() == 1 &&
+             "Cannot have multiple vtables in the same sub-object");
+      CharUnits PtrWidth = Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
+      unsigned VTablePtrIndex = unsigned(
+                  Context.getASTRecordLayout(RD).getVPtrOffset() / PtrWidth);
+      AddressPoints.insert(std::make_pair(
+          BaseSubobject(RD, OffsetInLayoutClass),
+          VTableLayout::AddressPointLocation{
+              unsigned(
+                  Context.getASTRecordLayout(RD).getVPtrOffset().getQuantity() / ),
+              unsigned(AddressPoint - VTableIndex)}));
+    } else {
+      AddressPoints.insert(
+          std::make_pair(BaseSubobject(RD, OffsetInLayoutClass),
+                         VTableLayout::AddressPointLocation{
+                             unsigned(VTableIndices.size() - 1),
+                             unsigned(AddressPoint - VTableIndex)}));
+    }
 
     const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
     const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();

@@ -652,6 +652,9 @@ protected:
   /// out is virtual.
   bool PrimaryBaseIsVirtual;
 
+  /// Offset to the virtual table pointer (if one exists).
+  CharUnits VPtrOffset;
+
   /// HasOwnVFPtr - Whether the class provides its own vtable/vftbl
   /// pointer, as opposed to inheriting one from a primary base class.
   bool HasOwnVFPtr;
@@ -1457,27 +1460,25 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
     for (auto I = D->field_begin(), End = D->field_end(); I != End; ++I) {
       auto Next(I);
       ++Next;
-      LayoutField(*I,
-                  InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+      LayoutField(*I, InsertExtraPadding &&
+                          (Next != End || !HasFlexibleArrayMember));
     }
   } else {
     bool HasEmittedVtable = false;
     for (auto I = D->decls_begin(), End = D->decls_end(); I != End; ++I) {
-      I->getCanonicalDecl()->print(llvm::outs());
-      llvm::outs() << "\n";
-
       auto Next(I);
-      
+
       // Careful, the decls range isn't filtered to instances of FieldDecl,
       // like the path above.
       do {
         ++Next;
       } while (Next != End && !isa<FieldDecl>(*Next));
-      
+
       {
         const FieldDecl *FD = dyn_cast<FieldDecl>(*I);
         if (FD) {
-          LayoutField(FD, InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+          LayoutField(FD, InsertExtraPadding &&
+                              (Next != End || !HasFlexibleArrayMember));
           continue;
         }
       }
@@ -1485,16 +1486,14 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
         const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
         if (MD && ItaniumVTableContext::hasVtableSlot(MD)) {
           {
-            llvm::outs() << "\n\n---" << MD->getNameAsString() << " is a VFunc " << DataSize << " " << getDataSize().getQuantity() << "---\n\n";
-            CharUnits PtrWidth =
-              Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
-            CharUnits PtrAlign =
-              Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerAlign(0));
+            CharUnits PtrWidth = Context.toCharUnitsFromBits(
+                Context.getTargetInfo().getPointerWidth(0));
+            CharUnits PtrAlign = Context.toCharUnitsFromBits(
+                Context.getTargetInfo().getPointerAlign(0));
             EnsureVTablePointerAlignment(PtrAlign);
             HasOwnVFPtr = true;
 
             assert(!IsUnion && "Unions cannot be dynamic classes.");
-            HandledFirstNonOverlappingEmptyField = true;
 
             setSize(getSize() + PtrWidth);
             setDataSize(getSize());
@@ -3264,9 +3263,9 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
           *this, Builder.Size, Builder.Alignment, Builder.Alignment,
           Builder.Alignment, Builder.RequiredAlignment, Builder.HasOwnVFPtr,
           Builder.HasOwnVFPtr || Builder.PrimaryBase, Builder.VBPtrOffset,
-          Builder.DataSize, Builder.FieldOffsets, Builder.NonVirtualSize,
-          Builder.Alignment, Builder.Alignment, CharUnits::Zero(),
-          Builder.PrimaryBase, false, Builder.SharedVBPtrBase,
+          CharUnits::fromQuantity(-1), Builder.DataSize, Builder.FieldOffsets,
+          Builder.NonVirtualSize, Builder.Alignment, Builder.Alignment,
+          CharUnits::Zero(), Builder.PrimaryBase, false, Builder.SharedVBPtrBase,
           Builder.EndsWithZeroSizedObject, Builder.LeadsWithZeroSizedBase,
           Builder.Bases, Builder.VBases);
     } else {
@@ -3298,9 +3297,9 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
           Builder.PreferredAlignment, Builder.UnadjustedAlignment,
           /*RequiredAlignment : used by MS-ABI)*/
           Builder.Alignment, Builder.HasOwnVFPtr, RD->isDynamicClass(),
-          CharUnits::fromQuantity(-1), DataSize, Builder.FieldOffsets,
-          NonVirtualSize, Builder.NonVirtualAlignment,
-          Builder.PreferredNVAlignment,
+          CharUnits::fromQuantity(-1), CharUnits::fromQuantity(-1),
+          DataSize, Builder.FieldOffsets, NonVirtualSize,
+          Builder.NonVirtualAlignment, Builder.PreferredNVAlignment,
           EmptySubobjects.SizeOfLargestEmptySubobject, Builder.PrimaryBase,
           Builder.PrimaryBaseIsVirtual, nullptr, false, false, Builder.Bases,
           Builder.VBases);
