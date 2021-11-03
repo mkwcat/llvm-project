@@ -2018,13 +2018,11 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
       assert(VTableIndices.size() == 1 &&
              "Cannot have multiple vtables in the same sub-object");
       CharUnits PtrWidth = Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
-      unsigned VTablePtrIndex = unsigned(
-                  Context.getASTRecordLayout(RD).getVPtrOffset() / PtrWidth);
       AddressPoints.insert(std::make_pair(
           BaseSubobject(RD, OffsetInLayoutClass),
           VTableLayout::AddressPointLocation{
               unsigned(
-                  Context.getASTRecordLayout(RD).getVPtrOffset().getQuantity() / ),
+                  Context.getASTRecordLayout(RD).getVPtrOffset() / PtrWidth),
               unsigned(AddressPoint - VTableIndex)}));
     } else {
       AddressPoints.insert(
