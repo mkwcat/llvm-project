@@ -1060,9 +1060,9 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
 
   // If this class needs a vtable/vf-table and didn't get one from a
   // primary base, add it in now.
-  llvm::outs() << getDataSize().getQuantity() << "\n";
   } else if (RD->isDynamicClass()) {
     HasOwnVFPtr = true;
+    VPtrOffset = CharUnits::fromQuantity(DataSize);
     // The Macintosh ABI's placement of virtual tables is not always at the start of a struct/class,
     // but at the declaration of the first virtual member function, thus in this case we defer
     // setting the placement until later where we know the order of declarations.
@@ -1453,7 +1453,6 @@ void ItaniumRecordLayoutBuilder::Layout(const ObjCInterfaceDecl *D) {
 void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
   // Layout each field, for now, just sequentially, respecting alignment.  In
   // the future, this will need to be tweakable by targets.
-  llvm::outs() << getDataSize().getQuantity() << "\n";
   bool InsertExtraPadding = D->mayInsertExtraPadding(/*EmitRemark=*/true);
   bool HasFlexibleArrayMember = D->hasFlexibleArrayMember();
   if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
@@ -1494,6 +1493,8 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
             HasOwnVFPtr = true;
 
             assert(!IsUnion && "Unions cannot be dynamic classes.");
+            
+            VPtrOffset = getDataSize();
 
             setSize(getSize() + PtrWidth);
             setDataSize(getSize());
@@ -3287,17 +3288,22 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
       bool skipTailPadding =
           mustSkipTailPadding(getTargetInfo().getCXXABI(), RD);
 
+      bool isCodeWarrior =
+          getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
       // FIXME: This should be done in FinalizeLayout.
       CharUnits DataSize =
           skipTailPadding ? Builder.getSize() : Builder.getDataSize();
       CharUnits NonVirtualSize =
           skipTailPadding ? DataSize : Builder.NonVirtualSize;
+      CharUnits VPtrOffset = 
+        isCodeWarrior ? Builder.VPtrOffset : CharUnits::fromQuantity(-1);
       NewEntry = new (*this) ASTRecordLayout(
           *this, Builder.getSize(), Builder.Alignment,
           Builder.PreferredAlignment, Builder.UnadjustedAlignment,
           /*RequiredAlignment : used by MS-ABI)*/
           Builder.Alignment, Builder.HasOwnVFPtr, RD->isDynamicClass(),
-          CharUnits::fromQuantity(-1), CharUnits::fromQuantity(-1),
+          CharUnits::fromQuantity(-1), VPtrOffset,
           DataSize, Builder.FieldOffsets, NonVirtualSize,
           Builder.NonVirtualAlignment, Builder.PreferredNVAlignment,
           EmptySubobjects.SizeOfLargestEmptySubobject, Builder.PrimaryBase,
