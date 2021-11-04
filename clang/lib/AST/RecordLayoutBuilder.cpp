@@ -1062,7 +1062,6 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
   // primary base, add it in now.
   } else if (RD->isDynamicClass()) {
     HasOwnVFPtr = true;
-    VPtrOffset = CharUnits::fromQuantity(DataSize);
     // The Macintosh ABI's placement of virtual tables is not always at the start of a struct/class,
     // but at the declaration of the first virtual member function, thus in this case we defer
     // setting the placement until later where we know the order of declarations.
