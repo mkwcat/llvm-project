@@ -1909,7 +1909,8 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
           .getVTableLayout(VTableClass)
           .getAddressPoint(Base);
 
-  bool isCodeWarrior = getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+  bool isCodeWarrior =
+      getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
 
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int32Ty, 0),
