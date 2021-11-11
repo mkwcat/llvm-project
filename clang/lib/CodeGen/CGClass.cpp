@@ -2725,7 +2725,6 @@ llvm::Value *CodeGenFunction::GetVTablePtr(Address This,
                                            const CXXRecordDecl *RD) {
   const bool isCodeWarriorABI =
       getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
-  CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
   Address VTablePtrSrc = Builder.CreateElementBitCast(This, VTableTy);
   if (isCodeWarriorABI) {
     CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
