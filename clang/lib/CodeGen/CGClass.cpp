@@ -2723,7 +2723,15 @@ void CodeGenFunction::InitializeVTablePointers(const CXXRecordDecl *RD) {
 llvm::Value *CodeGenFunction::GetVTablePtr(Address This,
                                            llvm::Type *VTableTy,
                                            const CXXRecordDecl *RD) {
+  const bool isCodeWarriorABI =
+      getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+  CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
   Address VTablePtrSrc = Builder.CreateElementBitCast(This, VTableTy);
+  if (isCodeWarriorABI && VPtrOffset.getQuantity() != -1) {
+    llvm::Value *VTPtr =
+        Builder.CreateConstGEP1_32(VTablePtrSrc.getPointer(), VPtrOffset / getPointerSize(), "vptr");
+    VTablePtrSrc = Address(VTPtr, VTablePtrSrc.getAlignment());
+  }
   llvm::Instruction *VTable = Builder.CreateLoad(VTablePtrSrc, "vtable");
   TBAAAccessInfo TBAAInfo = CGM.getTBAAVTablePtrAccessInfo(VTableTy);
   CGM.DecorateInstructionWithTBAA(VTable, TBAAInfo);
