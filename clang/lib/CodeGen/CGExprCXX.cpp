@@ -1907,12 +1907,15 @@ static bool EmitObjectDelete(CodeGenFunction &CGF,
   const FunctionDecl *OperatorDelete = DE->getOperatorDelete();
   assert(!OperatorDelete->isDestroyingOperatorDelete());
 
+  const bool isCodeWarriorABI =
+      CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   // Find the destructor for the type, if applicable.  If the
   // destructor is virtual, we'll just emit the vcall and return.
   const CXXDestructorDecl *Dtor = nullptr;
   if (const RecordType *RT = ElementType->getAs<RecordType>()) {
     CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
-    if (RD->hasDefinition() && (!RD->hasTrivialDestructor() || CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)) {
+    if (RD->hasDefinition() && (!RD->hasTrivialDestructor() || isCodeWarriorABI)) {
       Dtor = RD->getDestructor();
 
       if (Dtor->isVirtual()) {
@@ -1950,7 +1953,7 @@ static bool EmitObjectDelete(CodeGenFunction &CGF,
   // Make sure that we call delete even if the dtor throws.
   // This doesn't have to a conditional cleanup because we're going
   // to pop it off in a second.
-  if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+  if (isCodeWarriorABI) {
     if (Dtor) {
       CGF.EmitCXXDestructorCall(Dtor, Dtor_Deleting,
                                 /*ForVirtualBase=*/false,

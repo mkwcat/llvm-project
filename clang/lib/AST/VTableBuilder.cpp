@@ -1065,7 +1065,7 @@ public:
 
 
 
-/// ItaniumVTableBuilder - Class for building vtable layout information.
+/// CodeWarriorVTableBuilder - Class for building vtable layout information.
 class CodeWarriorVtableBuilder {
 public:
   /// PrimaryBasesSetVectorTy - A set vector of direct and indirect
@@ -1959,21 +1959,12 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
   if (Base.getBase() == MostDerivedClass)
     VBaseOffsetOffsets = Builder.getVBaseOffsetOffsets();
 
-  if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-    // Add the RTTI.
-    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
+  // Add the offset to top.
+  CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
+  Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
 
-    // Next add the offset to top.
-    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
-    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
-  } else {
-    // Add the offset to top.
-    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
-    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
-
-    // Next, add the RTTI.
-    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
-  }
+  // Next, add the RTTI.
+  Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
 
   uint64_t AddressPoint = Components.size();
 
@@ -1990,17 +1981,10 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
       const CXXMethodDecl *MD = I.first;
       const MethodInfo &MI = I.second;
       if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
-        if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
-              = MI.VTableIndex - AddressPoint;
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
-              = MI.VTableIndex - AddressPoint;
-        } else {
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
-              = MI.VTableIndex - AddressPoint;
-          MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
-              = MI.VTableIndex + 1 - AddressPoint;
-        }
+        MethodVTableIndices[GlobalDecl(DD, Dtor_Complete)]
+            = MI.VTableIndex - AddressPoint;
+        MethodVTableIndices[GlobalDecl(DD, Dtor_Deleting)]
+            = MI.VTableIndex + 1 - AddressPoint;
       } else {
         MethodVTableIndices[MD] = MI.VTableIndex - AddressPoint;
       }
@@ -2497,12 +2481,8 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
       GlobalDecl GD(DD, Dtor_Complete);
       assert(MethodVTableIndices.count(GD));
       uint64_t VTableIndex = MethodVTableIndices[GD];
-      if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-        IndicesMap[VTableIndex] = MethodName + " [deleting]";
-      } else {
-        IndicesMap[VTableIndex] = MethodName + " [complete]";
-        IndicesMap[VTableIndex + 1] = MethodName + " [deleting]";
-      }
+      IndicesMap[VTableIndex] = MethodName + " [complete]";
+      IndicesMap[VTableIndex + 1] = MethodName + " [deleting]";
     } else {
       assert(MethodVTableIndices.count(MD));
       IndicesMap[MethodVTableIndices[MD]] = MethodName;
@@ -2660,7 +2640,7 @@ ItaniumVTableContext::computeVTableRelatedInformation(const CXXRecordDecl *RD) {
     return;
   if (RD->getASTContext().getTargetInfo().getCXXABI() ==
       TargetCXXABI::CodeWarrior) {
-   CodeWarriorVtableBuilder Builder(*this, RD, CharUnits::Zero(),
+    CodeWarriorVtableBuilder Builder(*this, RD, CharUnits::Zero(),
                                  /*MostDerivedClassIsVirtual=*/0, RD);
     Entry = CreateVTableLayout(Builder);
 
@@ -4593,10 +4573,10 @@ void CodeWarriorVtableBuilder::AddMethods(
       });
   NewVirtualFunctions.append(NewImplicitVirtualFunctions.begin(),
                              NewImplicitVirtualFunctions.end());
-   if (RD->getNumBases() > 1) {
-      LayoutSecondaryVTables(Base, BaseIsMorallyVirtual,
-                             BaseOffsetInLayoutClass);
-    }
+  if (RD->getNumBases() > 1) {
+    LayoutSecondaryVTables(Base, BaseIsMorallyVirtual,
+                            BaseOffsetInLayoutClass);
+  }
 
   for (const CXXMethodDecl *MD : NewVirtualFunctions) {
 
@@ -4688,21 +4668,12 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
   if (Base.getBase() == MostDerivedClass)
     VBaseOffsetOffsets = Builder.getVBaseOffsetOffsets();
 
-  if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-    // Add the RTTI.
-    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
+  // Add the RTTI.
+  Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
 
-    // Next add the offset to top.
-    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
-    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
-  } else {
-    // Add the offset to top.
-    CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
-    Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
-
-    // Next, add the RTTI.
-    Components.push_back(VTableComponent::MakeRTTI(MostDerivedClass));
-  }
+  // Next add the offset to top.
+  CharUnits OffsetToTop = MostDerivedClassOffset - OffsetInLayoutClass;
+  Components.push_back(VTableComponent::MakeOffsetToTop(OffsetToTop));
 
   uint64_t AddressPoint = Components.size();
 
@@ -4743,8 +4714,7 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
       AddressPoints.insert(std::make_pair(
           BaseSubobject(RD, OffsetInLayoutClass),
           VTableLayout::AddressPointLocation{
-              unsigned(
-                  Context.getASTRecordLayout(RD).getVPtrOffset() / PtrWidth),
+              unsigned(VTableIndices.size() - 1),
               unsigned(AddressPoint - VTableIndex)}));
     }
 
@@ -5219,12 +5189,7 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
       GlobalDecl GD(DD, Dtor_Complete);
       assert(MethodVTableIndices.count(GD));
       uint64_t VTableIndex = MethodVTableIndices[GD];
-      if (Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
-        IndicesMap[VTableIndex] = MethodName + " [deleting]";
-      } else {
-        IndicesMap[VTableIndex] = MethodName + " [complete]";
-        IndicesMap[VTableIndex + 1] = MethodName + " [deleting]";
-      }
+      IndicesMap[VTableIndex] = MethodName + " [deleting]";
     } else {
       assert(MethodVTableIndices.count(MD));
       IndicesMap[MethodVTableIndices[MD]] = MethodName;
