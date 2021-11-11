@@ -2727,7 +2727,9 @@ llvm::Value *CodeGenFunction::GetVTablePtr(Address This,
       getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
   CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
   Address VTablePtrSrc = Builder.CreateElementBitCast(This, VTableTy);
-  if (isCodeWarriorABI && VPtrOffset.getQuantity() != -1) {
+  if (isCodeWarriorABI) {
+    CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
+    assert(VPtrOffset.getQuantity() >= 0, "the codewarrior abi requires a vtable offset!");
     llvm::Value *VTPtr =
         Builder.CreateConstGEP1_32(VTablePtrSrc.getPointer(), VPtrOffset / getPointerSize(), "vptr");
     VTablePtrSrc = Address(VTPtr, VTablePtrSrc.getAlignment());
