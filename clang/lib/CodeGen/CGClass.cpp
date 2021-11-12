@@ -2608,6 +2608,9 @@ void CodeGenFunction::InitializeVTablePointer(const VPtr &Vptr) {
     NonVirtualOffset = Vptr.Base.getBaseOffset();
   }
 
+  const bool isCodeWarriorABI =
+      getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   // Apply the offsets.
   Address VTableField = LoadCXXThisAddress();
 
@@ -2626,6 +2629,13 @@ void CodeGenFunction::InitializeVTablePointer(const VPtr &Vptr) {
           ->getPointerTo(GlobalsAS);
   VTableField = Builder.CreatePointerBitCastOrAddrSpaceCast(
       VTableField, VTablePtrTy->getPointerTo(GlobalsAS));
+  if (isCodeWarriorABI) {
+    CharUnits VPtrOffset = getContext().getASTRecordLayout(Vptr.VTableClass).getVPtrOffset();
+    assert(VPtrOffset.getQuantity() >= 0 && "the codewarrior abi requires a vtable offset!");
+    llvm::Value *VTPtr =
+        Builder.CreateConstGEP1_32(VTableField.getPointer(), VPtrOffset / getPointerSize(), "vptr");
+    VTableField = Address(VTPtr, VTableField.getAlignment());
+  }
   VTableAddressPoint = Builder.CreatePointerBitCastOrAddrSpaceCast(
       VTableAddressPoint, VTablePtrTy);
 
@@ -2728,7 +2738,7 @@ llvm::Value *CodeGenFunction::GetVTablePtr(Address This,
   Address VTablePtrSrc = Builder.CreateElementBitCast(This, VTableTy);
   if (isCodeWarriorABI) {
     CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
-    assert(VPtrOffset.getQuantity() >= 0, "the codewarrior abi requires a vtable offset!");
+    assert(VPtrOffset.getQuantity() >= 0 && "the codewarrior abi requires a vtable offset!");
     llvm::Value *VTPtr =
         Builder.CreateConstGEP1_32(VTablePtrSrc.getPointer(), VPtrOffset / getPointerSize(), "vptr");
     VTablePtrSrc = Address(VTPtr, VTablePtrSrc.getAlignment());
