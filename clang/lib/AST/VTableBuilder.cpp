@@ -4710,11 +4710,10 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
       // No idea if this is valid or not
       assert(VTableIndices.size() == 1 &&
              "Cannot have multiple vtables in the same sub-object");
-      CharUnits PtrWidth = Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
       AddressPoints.insert(std::make_pair(
           BaseSubobject(RD, OffsetInLayoutClass),
           VTableLayout::AddressPointLocation{
-              unsigned(VTableIndices.size() - 1),
+              unsigned(VTableIndicesTemp.size() - 1),
               unsigned(AddressPoint - VTableIndex)}));
     }
 
