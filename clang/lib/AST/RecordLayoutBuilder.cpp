@@ -3525,17 +3525,20 @@ static void DumpRecordLayout(raw_ostream &OS, const RecordDecl *RD,
   OS << '\n';
 
   IndentLevel++;
-
+  
   // Dump bases.
+  bool DeferVTOffset = false;
   if (CXXRD) {
     const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
     bool HasOwnVFPtr = Layout.hasOwnVFPtr();
     bool HasOwnVBPtr = Layout.hasOwnVBPtr();
+    DeferVTOffset = Layout.getVPtrOffset() > CharUnits::Zero();
 
-    // Vtable pointer.
     if (CXXRD->isDynamicClass() && !PrimaryBase && !isMsLayout(C)) {
-      PrintOffset(OS, Offset, IndentLevel);
-      OS << '(' << *RD << " vtable pointer)\n";
+      if (!DeferVTOffset) {
+        PrintOffset(OS, Offset, IndentLevel);
+        OS << '(' << *RD << " vtable pointer)\n";
+      }
     } else if (HasOwnVFPtr) {
       PrintOffset(OS, Offset, IndentLevel);
       // vfptr (for Microsoft C++ ABI)
@@ -3575,31 +3578,72 @@ static void DumpRecordLayout(raw_ostream &OS, const RecordDecl *RD,
 
   // Dump fields.
   uint64_t FieldNo = 0;
-  for (RecordDecl::field_iterator I = RD->field_begin(),
-         E = RD->field_end(); I != E; ++I, ++FieldNo) {
-    const FieldDecl &Field = **I;
-    uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
-    CharUnits FieldOffset =
-      Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
+  if (!DeferVTOffset || !CXXRD->isDynamicClass()) {
+    for (RecordDecl::field_iterator I = RD->field_begin(),
+          E = RD->field_end(); I != E; ++I, ++FieldNo) {
+      const FieldDecl &Field = **I;
+      uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
+      CharUnits FieldOffset =
+        Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
 
-    // Recursively dump fields of record type.
-    if (auto RT = Field.getType()->getAs<RecordType>()) {
-      DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
-                       Field.getName().data(),
-                       /*PrintSizeInfo=*/false,
-                       /*IncludeVirtualBases=*/true);
-      continue;
-    }
+      // Recursively dump fields of record type.
+      if (auto RT = Field.getType()->getAs<RecordType>()) {
+        DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
+                        Field.getName().data(),
+                        /*PrintSizeInfo=*/false,
+                        /*IncludeVirtualBases=*/true);
+        continue;
+      }
 
-    if (Field.isBitField()) {
-      uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
-      unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
-      unsigned Width = Field.getBitWidthValue(C);
-      PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
-    } else {
-      PrintOffset(OS, FieldOffset, IndentLevel);
+      if (Field.isBitField()) {
+        uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
+        unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
+        unsigned Width = Field.getBitWidthValue(C);
+        PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
+      } else {
+        PrintOffset(OS, FieldOffset, IndentLevel);
+      }
+      OS << Field.getType().getAsString() << ' ' << Field << '\n';
     }
-    OS << Field.getType().getAsString() << ' ' << Field << '\n';
+  } else {
+    bool VtableVisited = false;
+    for (RecordDecl::decl_iterator I = RD->decls_begin(),
+          E = RD->decls_end(); I != E; ++I) {
+      const FieldDecl *Field = dyn_cast<FieldDecl>(*I);
+      if (Field) {
+        uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
+        CharUnits FieldOffset =
+          Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
+
+        // Recursively dump fields of record type.
+        if (auto RT = Field->getType()->getAs<RecordType>()) {
+          DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
+                          Field->getName().data(),
+                          /*PrintSizeInfo=*/false,
+                          /*IncludeVirtualBases=*/true);
+          continue;
+        }
+
+        if (Field->isBitField()) {
+          uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
+          unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
+          unsigned Width = Field->getBitWidthValue(C);
+          PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
+        } else {
+          PrintOffset(OS, FieldOffset, IndentLevel);
+        }
+        OS << Field->getType().getAsString() << ' ' << *Field << '\n';
+        ++FieldNo;
+      }
+      const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
+      if (!VtableVisited && MD && ItaniumVTableContext::hasVtableSlot(MD)) {
+        if (!Layout.getPrimaryBase() && !isMsLayout(C)) {
+          PrintOffset(OS, Offset + Layout.getVPtrOffset(), IndentLevel);
+          OS << '(' << *RD << " vtable pointer)\n";
+        }
+        VtableVisited = true;
+      }
+    }
   }
 
   // Dump virtual bases.
