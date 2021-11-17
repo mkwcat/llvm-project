@@ -167,3 +167,7 @@ struct VtableExtremeInherited : virtual VtableComplex,
   virtual void i() override {};
   virtual void g() override {};
 };
+
+void f() {
+  VtableExtremeInherited vt;
+}
