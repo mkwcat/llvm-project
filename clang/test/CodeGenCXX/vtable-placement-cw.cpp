@@ -86,10 +86,10 @@ struct VtableMultiInheritedAt4_0 : VtableAt4, VtableAt0 {
   virtual void f() {}
 };
 
-// CHECK-7:        0 | struct VtableComplex
+// CHECK-7:        0 | struct VtableComplexPtrs
 // CHECK-7-NEXT:   0 |   struct VtableInheritedAt0 * vt0
 // CHECK-7-NEXT:   4 |   struct VtableInheritedAt4 * vt4
-// CHECK-7-NEXT:   8 |   (VtableComplex vtable pointer)
+// CHECK-7-NEXT:   8 |   (VtableComplexPtrs vtable pointer)
 // CHECK-7-NEXT:     | [sizeof=12, dsize=12, align=4,
 // CHECK-7-NEXT:     |  nvsize=12, nvalign=4]
 struct VtableComplexPtrs {
