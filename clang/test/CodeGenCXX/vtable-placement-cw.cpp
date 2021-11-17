@@ -134,7 +134,7 @@ struct VtableComplexInherited : VtableInheritedAt4,
 // CHECK-9-NEXT:     |  nvsize=16, nvalign=4]
 struct VtableComplex {
   VtableComplexPtrs ptrs;
-  virtual void i();
+  virtual void i() {}
 };
 
 // CHECK-10:       0 | struct VtableExtremeInherited
