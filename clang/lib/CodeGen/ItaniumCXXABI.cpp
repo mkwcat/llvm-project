@@ -515,6 +515,16 @@ public:
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
                       /*UseARMGuardVarABI=*/false) {}
 
+  CGCallee MacintoshCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                                      GlobalDecl GD,
+                                                      Address This,
+                                                      llvm::Type *Ty,
+                                                      SourceLocation Loc);
+
+  llvm::Constant *
+  getVTableAddressPoint(BaseSubobject Base,
+                        const CXXRecordDecl *VTableClass) override;
+
   void addImplicitStructorParams(CodeGenFunction &CGF,
                                  QualType &ResTy,
                                  FunctionArgList &Params) override;
@@ -1909,13 +1919,11 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
           .getVTableLayout(VTableClass)
           .getAddressPoint(Base);
 
-  bool isCodeWarrior = getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
-
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int32Ty, 0),
     llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
     llvm::ConstantInt::get(CGM.Int32Ty,
-                           AddressPoint.AddressPointIndex - (isCodeWarrior ? 2 : 0)),
+                           AddressPoint.AddressPointIndex),
   };
 
   return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,
@@ -2005,27 +2013,16 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     if (CGM.getItaniumVTableContext().isRelativeLayout()) {
       VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
 
-      llvm::Value *Load;
-      if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
-        Load = CGF.Builder.CreateCall(
-            CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
-            {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * (VTableIndex + 2))});
-      else
-        Load = CGF.Builder.CreateCall(
-            CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
-            {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * VTableIndex)});
+      llvm::Value *Load = CGF.Builder.CreateCall(
+          CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
+          {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * VTableIndex)});
       VFuncLoad = CGF.Builder.CreateBitCast(Load, Ty->getPointerTo());
     } else {
       VTable =
           CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
 
-      llvm::Value *VTableSlotPtr;
-      if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
-        VTableSlotPtr =
-            CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex + 2, "vfn");
-      else
-        VTableSlotPtr =
-            CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
+      llvm::Value *VTableSlotPtr =
+          CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
       VFuncLoad =
           CGF.Builder.CreateAlignedLoad(VTableSlotPtr, CGF.getPointerAlign());
     }
@@ -3539,7 +3536,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   // FIXME: GCC treats block pointers as fundamental types?!
   case Type::BlockPointer:
     // abi::__fundamental_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv123__fundamental_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv123__fundamental_type_infoE";
@@ -3549,7 +3546,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::IncompleteArray:
   case Type::VariableArray:
     // abi::__array_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv117__array_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv117__array_type_infoE";
@@ -3558,7 +3555,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::FunctionNoProto:
   case Type::FunctionProto:
     // abi::__function_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv120__function_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv120__function_type_infoE";
@@ -3566,7 +3563,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
 
   case Type::Enum:
     // abi::__enum_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv116__enum_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv116__enum_type_infoE";
@@ -3611,7 +3608,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::ObjCObjectPointer:
   case Type::Pointer:
     // abi::__pointer_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv119__pointer_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv119__pointer_type_infoE";
@@ -3619,7 +3616,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
 
   case Type::MemberPointer:
     // abi::__pointer_to_member_type_info.
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+    if (isCodeWarriorABI)
       VTableName = "__vt__Q210__cxxabiv129__pointer_to_member_type_info";
     else
       VTableName = "_ZTVN10__cxxabiv129__pointer_to_member_type_infoE";
@@ -3644,7 +3641,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
     // The vtable address point is 8 bytes after its start:
     // 4 for the offset to top + 4 for the relative offset to rtti.
     llvm::Constant *Offset;
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) 
+    if (isCodeWarriorABI) 
       Offset = llvm::ConstantInt::get(CGM.Int32Ty, 0);
     else
       Offset = llvm::ConstantInt::get(CGM.Int32Ty, 8);
@@ -3653,7 +3650,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
         llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Offset);
   } else {
     llvm::Constant *Offset;
-    if (CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) 
+    if (isCodeWarriorABI) 
       Offset = llvm::ConstantInt::get(PtrDiffTy, 0);
     else
       Offset = llvm::ConstantInt::get(PtrDiffTy, 2);
@@ -4857,6 +4854,87 @@ void XLCXXABI::emitCXXStermFinalizer(const VarDecl &D, llvm::Function *dtorStub,
     CGM.AddCXXStermFinalizerEntry(StermFinalizer);
 }
 
+CGCallee MacintoshCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                                    GlobalDecl GD,
+                                                    Address This,
+                                                    llvm::Type *Ty,
+                                                    SourceLocation Loc) {
+  auto *MethodDecl = cast<CXXMethodDecl>(GD.getDecl());
+
+  llvm::Value *VTable = CGF.GetVTablePtr(
+      This, Ty->getPointerTo()->getPointerTo(), MethodDecl->getParent());
+
+  uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
+  llvm::Value *VFunc;
+  if (CGF.ShouldEmitVTableTypeCheckedLoad(MethodDecl->getParent())) {
+    VFunc = CGF.EmitVTableTypeCheckedLoad(
+        MethodDecl->getParent(), VTable,
+        VTableIndex * CGM.getContext().getTargetInfo().getPointerWidth(0) / 8);
+  } else {
+    CGF.EmitTypeMetadataCodeForVCall(MethodDecl->getParent(), VTable, Loc);
+
+    llvm::Value *VFuncLoad;
+    if (CGM.getItaniumVTableContext().isRelativeLayout()) {
+      VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
+      llvm::Value *Load = CGF.Builder.CreateCall(
+            CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
+            {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * (VTableIndex + 2))});
+      VFuncLoad = CGF.Builder.CreateBitCast(Load, Ty->getPointerTo());
+    } else {
+      VTable =
+          CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
+
+      llvm::Value *VTableSlotPtr =
+          CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex + 2, "vfn");
+      VFuncLoad =
+          CGF.Builder.CreateAlignedLoad(VTableSlotPtr, CGF.getPointerAlign());
+    }
+
+    // Add !invariant.load md to virtual function load to indicate that
+    // function didn't change inside vtable.
+    // It's safe to add it without -fstrict-vtable-pointers, but it would not
+    // help in devirtualization because it will only matter if we will have 2
+    // the same virtual function loads from the same vtable load, which won't
+    // happen without enabled devirtualization with -fstrict-vtable-pointers.
+    if (CGM.getCodeGenOpts().OptimizationLevel > 0 &&
+        CGM.getCodeGenOpts().StrictVTablePointers) {
+      if (auto *VFuncLoadInstr = dyn_cast<llvm::Instruction>(VFuncLoad)) {
+        VFuncLoadInstr->setMetadata(
+            llvm::LLVMContext::MD_invariant_load,
+            llvm::MDNode::get(CGM.getLLVMContext(),
+                              llvm::ArrayRef<llvm::Metadata *>()));
+      }
+    }
+    VFunc = VFuncLoad;
+  }
+
+  CGCallee Callee(GD, VFunc);
+  return Callee;
+}
+
+llvm::Constant *
+MacintoshCXXABI::getVTableAddressPoint(BaseSubobject Base,
+                                       const CXXRecordDecl *VTableClass) {
+  llvm::GlobalValue *VTable = getAddrOfVTable(VTableClass, CharUnits());
+
+  // Find the appropriate vtable within the vtable group, and the address point
+  // within that vtable.
+  VTableLayout::AddressPointLocation AddressPoint =
+      CGM.getItaniumVTableContext()
+          .getVTableLayout(VTableClass)
+          .getAddressPoint(Base);
+
+  llvm::Value *Indices[] = {
+    llvm::ConstantInt::get(CGM.Int32Ty, 0),
+    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
+    llvm::ConstantInt::get(CGM.Int32Ty,
+                           AddressPoint.AddressPointIndex - 2),
+  };
+
+  return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,
+                                              Indices, /*InBounds=*/true,
+                                              /*InRangeIndex=*/1);
+}
 
 void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
                                                 QualType &ResTy,
@@ -4902,7 +4980,6 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
   QualType DeletingTy = getContext().IntTy;
 
-
   CGCallee Callee;
   if (getContext().getLangOpts().AppleKext &&
       Type != Dtor_Base && DD->isVirtual())
@@ -4925,7 +5002,6 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
-
   GlobalDecl GD(Dtor, DtorType);
   llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType, false, false);
   QualType DeletingTy = getContext().IntTy;
@@ -4934,7 +5010,6 @@ llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
       &CGM.getTypes().arrangeCXXStructorDeclaration(GD);
   llvm::FunctionType *Ty = CGF.CGM.getTypes().GetFunctionType(*FInfo);
   CGCallee Callee = CGCallee::forVirtual(CE, GD, This, Ty);
-
   QualType ThisTy;
   if (CE) {
     ThisTy = CE->getObjectType();

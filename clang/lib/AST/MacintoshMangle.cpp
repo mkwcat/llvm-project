@@ -813,16 +813,16 @@ void MacintoshMangleContextImpl::mangleReferenceTemporary(const VarDecl *D,
 }
 
 void MacintoshMangleContextImpl::mangleCXXRTTI(QualType Ty, raw_ostream &Out) {
-  // <special-name> ::= TI <type>  # typeinfo structure
+  // <special-name> ::= RTTI <type>  # typeinfo structure
   assert(!Ty.hasQualifiers() && "RTTI info cannot have top-level qualifiers");
-  Out << "__ti__";
+  Out << "__RTTI__";
   PrintType(Ty, getASTContext(), Out);
 }
 
 void MacintoshMangleContextImpl::mangleCXXRTTIName(QualType Ty,
                                                    raw_ostream &Out) {
-  // <special-name> ::= TS <type>  # typeinfo name (null terminated byte string)
-  Out << "__ts__";
+  // <special-name> ::= RTTS <type>  # typeinfo name (null terminated byte string)
+  Out << "__RTTS__";
   PrintType(Ty, getASTContext(), Out);
 }
 
