@@ -26,6 +26,7 @@
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
@@ -841,7 +842,11 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   EmitAsanPrologueOrEpilogue(true);
   const CXXConstructorDecl *Ctor = cast<CXXConstructorDecl>(CurGD.getDecl());
   CXXCtorType CtorType = CurGD.getCtorType();
-
+  if (CGM.getTarget().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (CtorType == Ctor_Base) {
+      return;
+    }
+  }
   assert((CGM.getTarget().getCXXABI().hasConstructorVariants() ||
           CtorType == Ctor_Complete) &&
          "can only generate complete ctor for this ABI");
@@ -1465,10 +1470,90 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // outside of the function-try-block, which means it's always
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
+
+  if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    const CXXRecordDecl *ClassDecl = Dtor->getParent();
+
+    RunCleanupsScope DtorEpilogue(*this);
+    EnterDtorCleanups(Dtor, Dtor_Deleting);
+
+    // Unions have no bases and do not call field destructors.
+    if (ClassDecl->isUnion())
+      return;
+
+    // The complete-destructor phase just destructs all the virtual bases.
+    // We push them in the forward order so that they'll be popped in
+    // the reverse order.
+    for (const auto &Base : ClassDecl->bases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+
+      CallBaseDtor BaseCall(BaseClassDecl, false);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+
+    // emit the dtor body
+
+    // If the body is a function-try-block, enter the try before
+    // anything else.
+    bool isTryBody = (Body && isa<CXXTryStmt>(Body));
+    if (isTryBody)
+        EnterCXXTryStmt(*cast<CXXTryStmt>(Body), true);
+    EmitAsanPrologueOrEpilogue(false);
+
+    // Initialize the vtable pointers before entering the body.
+    if (!CanSkipVTablePointerInitialization(*this, Dtor)) {
+      // Insert the llvm.launder.invariant.group intrinsic before initializing
+      // the vptrs to cancel any previous assumptions we might have made.
+      if (CGM.getCodeGenOpts().StrictVTablePointers &&
+          CGM.getCodeGenOpts().OptimizationLevel > 0)
+        CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
+      InitializeVTablePointers(Dtor->getParent());
+    }
+    if (isTryBody)
+      EmitStmt(cast<CXXTryStmt>(Body)->getTryBlock());
+    else if (Body)
+      EmitStmt(Body);
+    else {
+      assert(Dtor->isImplicit() && "bodyless dtor not implicit");
+      // nothing to do besides what's in the epilogue
+    }
+    // -fapple-kext must inline any call to this dtor into
+    // the caller's body.
+    if (getLangOpts().AppleKext)
+      CurFn->addFnAttr(llvm::Attribute::AlwaysInline);
+
+    llvm::BasicBlock *checkDeleteBB = this->createBasicBlock("dtor.check_delete");
+    llvm::BasicBlock *destroyVBasesBB = this->createBasicBlock("dtor.destroy_vbases");
+
+    llvm::Value *ShouldCheckDelete
+    = Builder.CreateICmpEQ(CXXStructorImplicitParamValue,
+                           llvm::Constant::getIntegerValue(
+                             CXXStructorImplicitParamValue->getType(),
+                             llvm::APInt(32, 0)));
+
+    Builder.CreateCondBr(ShouldCheckDelete, checkDeleteBB, destroyVBasesBB);
+    EmitBlock(destroyVBasesBB);
+
+    for (const auto &Base : ClassDecl->vbases()) {
+      auto *BaseClassDecl =
+          cast<CXXRecordDecl>(Base.getType()->castAs<RecordType>()->getDecl());
+
+
+      CallBaseDtor BaseCall(BaseClassDecl, true);
+      BaseCall.Emit(*this, /*flags*/{});
+    }
+
+    Builder.CreateBr(checkDeleteBB);
+    EmitBlock(checkDeleteBB);
+    return;
+  }
+  
   if (DtorType == Dtor_Deleting) {
     RunCleanupsScope DtorEpilogue(*this);
     EnterDtorCleanups(Dtor, Dtor_Deleting);
-    if (HaveInsertPoint()) {
+    if (HaveInsertPoint() && getContext().getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
       QualType ThisTy = Dtor->getThisObjectType();
       EmitCXXDestructorCall(Dtor, Dtor_Complete, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
@@ -1594,8 +1679,15 @@ namespace {
                                      bool ReturnAfterDelete) {
     llvm::BasicBlock *callDeleteBB = CGF.createBasicBlock("dtor.call_delete");
     llvm::BasicBlock *continueBB = CGF.createBasicBlock("dtor.continue");
-    llvm::Value *ShouldCallDelete
-      = CGF.Builder.CreateIsNull(ShouldDeleteCondition);
+    llvm::Value *ShouldCallDelete;
+
+    if (CGF.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      ShouldCallDelete = CGF.Builder.CreateICmpSLE(ShouldDeleteCondition,
+                                                   llvm::Constant::getIntegerValue(ShouldDeleteCondition->getType(),
+                                                   llvm::APInt(32, 0)));
+    else
+      ShouldCallDelete = CGF.Builder.CreateIsNull(ShouldDeleteCondition);
+
     CGF.Builder.CreateCondBr(ShouldCallDelete, continueBB, callDeleteBB);
 
     CGF.EmitBlock(callDeleteBB);
@@ -1798,30 +1890,44 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
 
   // The deleting-destructor phase just needs to call the appropriate
   // operator delete that Sema picked up.
-  if (DtorType == Dtor_Deleting) {
-    assert(DD->getOperatorDelete() &&
-           "operator delete missing - EnterDtorCleanups");
-    if (CXXStructorImplicitParamValue) {
-      // If there is an implicit param to the deleting dtor, it's a boolean
-      // telling whether this is a deleting destructor.
+  if (getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior) {
+    if (DtorType == Dtor_Deleting) {
+      assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
       if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
         EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
                                       /*ReturnAfterDelete*/true);
       else
         EHStack.pushCleanup<CallDtorDeleteConditional>(
             NormalAndEHCleanup, CXXStructorImplicitParamValue);
-    } else {
-      if (DD->getOperatorDelete()->isDestroyingOperatorDelete()) {
-        const CXXRecordDecl *ClassDecl = DD->getParent();
-        EmitDeleteCall(DD->getOperatorDelete(),
-                       LoadThisForDtorDelete(*this, DD),
-                       getContext().getTagDeclType(ClassDecl));
-        EmitBranchThroughCleanup(ReturnBlock);
-      } else {
-        EHStack.pushCleanup<CallDtorDelete>(NormalAndEHCleanup);
-      }
     }
     return;
+  } else {
+    if (DtorType == Dtor_Deleting) {
+      assert(DD->getOperatorDelete() &&
+            "operator delete missing - EnterDtorCleanups");
+      if (CXXStructorImplicitParamValue) {
+        // If there is an implicit param to the deleting dtor, it's a boolean
+        // telling whether this is a deleting destructor.
+        if (DD->getOperatorDelete()->isDestroyingOperatorDelete())
+          EmitConditionalDtorDeleteCall(*this, CXXStructorImplicitParamValue,
+                                        /*ReturnAfterDelete*/true);
+        else
+          EHStack.pushCleanup<CallDtorDeleteConditional>(
+              NormalAndEHCleanup, CXXStructorImplicitParamValue);
+      } else {
+        if (DD->getOperatorDelete()->isDestroyingOperatorDelete()) {
+          const CXXRecordDecl *ClassDecl = DD->getParent();
+          EmitDeleteCall(DD->getOperatorDelete(),
+                        LoadThisForDtorDelete(*this, DD),
+                        getContext().getTagDeclType(ClassDecl));
+          EmitBranchThroughCleanup(ReturnBlock);
+        } else {
+          EHStack.pushCleanup<CallDtorDelete>(NormalAndEHCleanup);
+        }
+      }
+      return;
+    }
   }
 
   const CXXRecordDecl *ClassDecl = DD->getParent();
@@ -2502,6 +2608,9 @@ void CodeGenFunction::InitializeVTablePointer(const VPtr &Vptr) {
     NonVirtualOffset = Vptr.Base.getBaseOffset();
   }
 
+  const bool isCodeWarriorABI =
+      getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   // Apply the offsets.
   Address VTableField = LoadCXXThisAddress();
 
@@ -2520,6 +2629,13 @@ void CodeGenFunction::InitializeVTablePointer(const VPtr &Vptr) {
           ->getPointerTo(GlobalsAS);
   VTableField = Builder.CreatePointerBitCastOrAddrSpaceCast(
       VTableField, VTablePtrTy->getPointerTo(GlobalsAS));
+  if (isCodeWarriorABI) {
+    CharUnits VPtrOffset = getContext().getASTRecordLayout(Vptr.VTableClass).getVPtrOffset();
+    assert(VPtrOffset.getQuantity() >= 0 && "the codewarrior abi requires a vtable offset!");
+    llvm::Value *VTPtr =
+        Builder.CreateConstGEP1_32(VTableField.getPointer(), VPtrOffset / getPointerSize(), "vptr");
+    VTableField = Address(VTPtr, VTableField.getAlignment());
+  }
   VTableAddressPoint = Builder.CreatePointerBitCastOrAddrSpaceCast(
       VTableAddressPoint, VTablePtrTy);
 
@@ -2617,7 +2733,16 @@ void CodeGenFunction::InitializeVTablePointers(const CXXRecordDecl *RD) {
 llvm::Value *CodeGenFunction::GetVTablePtr(Address This,
                                            llvm::Type *VTableTy,
                                            const CXXRecordDecl *RD) {
+  const bool isCodeWarriorABI =
+      getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
   Address VTablePtrSrc = Builder.CreateElementBitCast(This, VTableTy);
+  if (isCodeWarriorABI) {
+    CharUnits VPtrOffset = getContext().getASTRecordLayout(RD).getVPtrOffset();
+    assert(VPtrOffset.getQuantity() >= 0 && "the codewarrior abi requires a vtable offset!");
+    llvm::Value *VTPtr =
+        Builder.CreateConstGEP1_32(VTablePtrSrc.getPointer(), VPtrOffset / getPointerSize(), "vptr");
+    VTablePtrSrc = Address(VTPtr, VTablePtrSrc.getAlignment());
+  }
   llvm::Instruction *VTable = Builder.CreateLoad(VTablePtrSrc, "vtable");
   TBAAAccessInfo TBAAInfo = CGM.getTBAAVTablePtrAccessInfo(VTableTy);
   CGM.DecorateInstructionWithTBAA(VTable, TBAAInfo);

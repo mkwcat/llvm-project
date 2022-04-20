@@ -509,6 +509,114 @@ private:
   }
 };
 
+class MacintoshCXXABI final : public ItaniumCXXABI {
+public:
+  explicit MacintoshCXXABI(CodeGen::CodeGenModule &CGM)
+      : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
+                      /*UseARMGuardVarABI=*/false) {}
+
+  CGCallee MacintoshCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                                      GlobalDecl GD,
+                                                      Address This,
+                                                      llvm::Type *Ty,
+                                                      SourceLocation Loc);
+
+  llvm::Constant *
+  getVTableAddressPoint(BaseSubobject Base,
+                        const CXXRecordDecl *VTableClass) override;
+
+  void addImplicitStructorParams(CodeGenFunction &CGF,
+                                 QualType &ResTy,
+                                 FunctionArgList &Params) override;
+
+  AddedStructorArgCounts
+  buildStructorSignature(GlobalDecl GD,
+                         SmallVectorImpl<CanQualType> &ArgTys) override;
+
+  void emitCXXStructor(GlobalDecl GD) override {
+    auto *MD = cast<CXXMethodDecl>(GD.getDecl());
+    auto *CD = dyn_cast<CXXConstructorDecl>(MD);
+    const CXXDestructorDecl *DD = CD ? nullptr : cast<CXXDestructorDecl>(MD);
+
+    if (DD && GD.getDtorType() == Dtor_Base &&
+        !CGM.TryEmitBaseDestructorAsAlias(DD))
+      return;
+
+    llvm::Function *Fn = CGM.codegenCXXStructor(GD);
+    CGM.maybeSetTrivialComdat(*GD.getDecl(), *Fn);
+  }
+  
+  void EmitCXXConstructors(const CXXConstructorDecl *D) override {
+    CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
+  }
+
+  void EmitCXXDestructors(const CXXDestructorDecl *D) override {
+    CGM.EmitGlobal(GlobalDecl(D, Dtor_Deleting));
+  }
+
+  void adjustCallArgsForDestructorThunk(CodeGenFunction &CGF, GlobalDecl GD,
+                                      CallArgList &CallArgs) override {
+    assert(GD.getDtorType() == Dtor_Deleting &&
+            "Only deleting destructor thunks are available in this ABI");
+    CallArgs.add(RValue::get(getStructorImplicitParamValue(CGF)),
+                  getContext().IntTy);
+  }
+
+  void EmitDestructorCall(CodeGenFunction &CGF,
+                          const CXXDestructorDecl *DD,
+                          CXXDtorType Type, bool ForVirtualBase,
+                          bool Delegating, Address This,
+                          QualType ThisTy) override;
+
+  llvm::Value *EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *Dtor,
+                                         CXXDtorType DtorType,
+                                         Address This,
+                                         DeleteOrMemberCallExpr E) override;
+
+
+
+  llvm::Value *getCXXDestructorImplicitParam(CodeGenFunction &CGF,
+                                             const CXXDestructorDecl *DD,
+                                             CXXDtorType Type,
+                                             bool ForVirtualBase,
+                                             bool Delegating) override {
+  int flag;
+  switch (Type) {
+  case Dtor_Deleting:
+    flag = 1;
+    break;
+  case Dtor_Complete:
+    flag = -1;
+    break;
+  case Dtor_Base:
+    flag = 0;
+    break;
+  case Dtor_Comdat:
+    llvm_unreachable("dtor comdat is unexpected");
+  }
+  return llvm::ConstantInt::get(CGM.Int32Ty, flag, true);
+  }
+
+  /// Return whether the given global decl needs a VTT parameter, which it does
+  /// if it's a base constructor or destructor with virtual bases.
+  bool NeedsVTTParameter(GlobalDecl GD) override {
+    return false;
+  }
+
+protected:
+  MacintoshMangleContext &getMangleContext() {
+    return cast<MacintoshMangleContext>(CodeGen::CGCXXABI::getMangleContext());
+  }
+
+private:
+
+  bool HasThisReturn(GlobalDecl GD) const override {
+    return isa<CXXConstructorDecl>(GD.getDecl()) ||
+           isa<CXXDestructorDecl>(GD.getDecl());
+  }
+};
+
 class WebAssemblyCXXABI final : public ItaniumCXXABI {
 public:
   explicit WebAssemblyCXXABI(CodeGen::CodeGenModule &CGM)
@@ -553,6 +661,9 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
 
   case TargetCXXABI::AppleARM64:
     return new AppleARM64CXXABI(CGM);
+
+  case TargetCXXABI::CodeWarrior:
+    return new MacintoshCXXABI(CGM);
 
   case TargetCXXABI::Fuchsia:
     return new FuchsiaCXXABI(CGM);
@@ -1267,7 +1378,7 @@ void ItaniumCXXABI::emitVirtualObjectDelete(CodeGenFunction &CGF,
 
   // FIXME: Provide a source location here even though there's no
   // CXXMemberCallExpr for dtor call.
-  CXXDtorType DtorType = UseGlobalDelete ? Dtor_Complete : Dtor_Deleting;
+  CXXDtorType DtorType = UseGlobalDelete ? Dtor_Deleting : Dtor_Deleting;
   EmitVirtualDestructorCall(CGF, Dtor, DtorType, Ptr, DE);
 
   if (UseGlobalDelete)
@@ -1712,6 +1823,7 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
                                        CXXDtorType Type, bool ForVirtualBase,
                                        bool Delegating, Address This,
                                        QualType ThisTy) {
+
   GlobalDecl GD(DD, Type);
   llvm::Value *VTT =
       getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
@@ -1793,6 +1905,8 @@ llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructor(
   return getVTableAddressPoint(Base, VTableClass);
 }
 
+
+
 llvm::Constant *
 ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
                                      const CXXRecordDecl *VTableClass) {
@@ -1804,10 +1918,12 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
       CGM.getItaniumVTableContext()
           .getVTableLayout(VTableClass)
           .getAddressPoint(Base);
+
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int32Ty, 0),
     llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
-    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.AddressPointIndex),
+    llvm::ConstantInt::get(CGM.Int32Ty,
+                           AddressPoint.AddressPointIndex),
   };
 
   return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,
@@ -1896,6 +2012,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     llvm::Value *VFuncLoad;
     if (CGM.getItaniumVTableContext().isRelativeLayout()) {
       VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
+
       llvm::Value *Load = CGF.Builder.CreateCall(
           CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
           {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * VTableIndex)});
@@ -1903,6 +2020,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     } else {
       VTable =
           CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
+
       llvm::Value *VTableSlotPtr =
           CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
       VFuncLoad =
@@ -1939,6 +2057,7 @@ llvm::Value *ItaniumCXXABI::EmitVirtualDestructorCall(
   assert((CE != nullptr) ^ (D != nullptr));
   assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
+
 
   GlobalDecl GD(Dtor, DtorType);
   const CGFunctionInfo *FInfo =
@@ -2973,6 +3092,7 @@ bool ItaniumCXXABI::NeedsVTTParameter(GlobalDecl GD) {
 
 namespace {
 class ItaniumRTTIBuilder {
+protected:
   CodeGenModule &CGM;  // Per-module state.
   llvm::LLVMContext &VMContext;
   const ItaniumCXXABI &CXXABI;  // Per-module state.
@@ -3368,15 +3488,20 @@ static bool CanUseSingleInheritance(const CXXRecordDecl *RD) {
 }
 
 void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
+  const bool isCodeWarriorABI = CGM.getContext().getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
   // abi::__class_type_info.
   static const char * const ClassTypeInfo =
-    "_ZTVN10__cxxabiv117__class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv117__class_type_info" :
+                       "_ZTVN10__cxxabiv117__class_type_infoE";
   // abi::__si_class_type_info.
   static const char * const SIClassTypeInfo =
-    "_ZTVN10__cxxabiv120__si_class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv120__si_class_type_info" :
+                       "_ZTVN10__cxxabiv120__si_class_type_infoE";
   // abi::__vmi_class_type_info.
   static const char * const VMIClassTypeInfo =
-    "_ZTVN10__cxxabiv121__vmi_class_type_infoE";
+    isCodeWarriorABI ? "__vt__Q210__cxxabiv121__vmi_class_type_info" :
+                       "_ZTVN10__cxxabiv121__vmi_class_type_infoE";
 
   const char *VTableName = nullptr;
 
@@ -3411,25 +3536,37 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   // FIXME: GCC treats block pointers as fundamental types?!
   case Type::BlockPointer:
     // abi::__fundamental_type_info.
-    VTableName = "_ZTVN10__cxxabiv123__fundamental_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv123__fundamental_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv123__fundamental_type_infoE";
     break;
 
   case Type::ConstantArray:
   case Type::IncompleteArray:
   case Type::VariableArray:
     // abi::__array_type_info.
-    VTableName = "_ZTVN10__cxxabiv117__array_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv117__array_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv117__array_type_infoE";
     break;
 
   case Type::FunctionNoProto:
   case Type::FunctionProto:
     // abi::__function_type_info.
-    VTableName = "_ZTVN10__cxxabiv120__function_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv120__function_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv120__function_type_infoE";
     break;
 
   case Type::Enum:
     // abi::__enum_type_info.
-    VTableName = "_ZTVN10__cxxabiv116__enum_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv116__enum_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv116__enum_type_infoE";
     break;
 
   case Type::Record: {
@@ -3471,12 +3608,18 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   case Type::ObjCObjectPointer:
   case Type::Pointer:
     // abi::__pointer_type_info.
-    VTableName = "_ZTVN10__cxxabiv119__pointer_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv119__pointer_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv119__pointer_type_infoE";
     break;
 
   case Type::MemberPointer:
     // abi::__pointer_to_member_type_info.
-    VTableName = "_ZTVN10__cxxabiv129__pointer_to_member_type_infoE";
+    if (isCodeWarriorABI)
+      VTableName = "__vt__Q210__cxxabiv129__pointer_to_member_type_info";
+    else
+      VTableName = "_ZTVN10__cxxabiv129__pointer_to_member_type_infoE";
     break;
   }
 
@@ -3497,14 +3640,22 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   if (CGM.getItaniumVTableContext().isRelativeLayout()) {
     // The vtable address point is 8 bytes after its start:
     // 4 for the offset to top + 4 for the relative offset to rtti.
-    llvm::Constant *Eight = llvm::ConstantInt::get(CGM.Int32Ty, 8);
+    llvm::Constant *Offset;
+    if (isCodeWarriorABI) 
+      Offset = llvm::ConstantInt::get(CGM.Int32Ty, 0);
+    else
+      Offset = llvm::ConstantInt::get(CGM.Int32Ty, 8);
     VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
     VTable =
-        llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Eight);
+        llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Offset);
   } else {
-    llvm::Constant *Two = llvm::ConstantInt::get(PtrDiffTy, 2);
+    llvm::Constant *Offset;
+    if (isCodeWarriorABI) 
+      Offset = llvm::ConstantInt::get(PtrDiffTy, 0);
+    else
+      Offset = llvm::ConstantInt::get(PtrDiffTy, 2);
     VTable = llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8PtrTy, VTable,
-                                                          Two);
+                                                          Offset);
   }
   VTable = llvm::ConstantExpr::getBitCast(VTable, CGM.Int8PtrTy);
 
@@ -3619,7 +3770,7 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(
       llvm::GlobalValue::VisibilityTypes Visibility,
       llvm::GlobalValue::DLLStorageClassTypes DLLStorageClass) {
   // Add the vtable pointer.
-  BuildVTablePointer(cast<Type>(Ty));
+  // BuildVTablePointer(cast<Type>(Ty));
 
   // And the name.
   llvm::GlobalVariable *TypeName = GetAddrOfTypeName(Ty, Linkage);
@@ -4701,4 +4852,171 @@ void XLCXXABI::emitCXXStermFinalizer(const VarDecl &D, llvm::Function *dtorStub,
     CGM.AddCXXStermFinalizerToGlobalDtor(StermFinalizer, 65535);
   else
     CGM.AddCXXStermFinalizerEntry(StermFinalizer);
+}
+
+CGCallee MacintoshCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                                    GlobalDecl GD,
+                                                    Address This,
+                                                    llvm::Type *Ty,
+                                                    SourceLocation Loc) {
+  auto *MethodDecl = cast<CXXMethodDecl>(GD.getDecl());
+
+  llvm::Value *VTable = CGF.GetVTablePtr(
+      This, Ty->getPointerTo()->getPointerTo(), MethodDecl->getParent());
+
+  uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
+  llvm::Value *VFunc;
+  if (CGF.ShouldEmitVTableTypeCheckedLoad(MethodDecl->getParent())) {
+    VFunc = CGF.EmitVTableTypeCheckedLoad(
+        MethodDecl->getParent(), VTable,
+        VTableIndex * CGM.getContext().getTargetInfo().getPointerWidth(0) / 8);
+  } else {
+    CGF.EmitTypeMetadataCodeForVCall(MethodDecl->getParent(), VTable, Loc);
+
+    llvm::Value *VFuncLoad;
+    if (CGM.getItaniumVTableContext().isRelativeLayout()) {
+      VTable = CGF.Builder.CreateBitCast(VTable, CGM.Int8PtrTy);
+      llvm::Value *Load = CGF.Builder.CreateCall(
+            CGM.getIntrinsic(llvm::Intrinsic::load_relative, {CGM.Int32Ty}),
+            {VTable, llvm::ConstantInt::get(CGM.Int32Ty, 4 * (VTableIndex + 2))});
+      VFuncLoad = CGF.Builder.CreateBitCast(Load, Ty->getPointerTo());
+    } else {
+      VTable =
+          CGF.Builder.CreateBitCast(VTable, Ty->getPointerTo()->getPointerTo());
+
+      llvm::Value *VTableSlotPtr =
+          CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex + 2, "vfn");
+      VFuncLoad =
+          CGF.Builder.CreateAlignedLoad(VTableSlotPtr, CGF.getPointerAlign());
+    }
+
+    // Add !invariant.load md to virtual function load to indicate that
+    // function didn't change inside vtable.
+    // It's safe to add it without -fstrict-vtable-pointers, but it would not
+    // help in devirtualization because it will only matter if we will have 2
+    // the same virtual function loads from the same vtable load, which won't
+    // happen without enabled devirtualization with -fstrict-vtable-pointers.
+    if (CGM.getCodeGenOpts().OptimizationLevel > 0 &&
+        CGM.getCodeGenOpts().StrictVTablePointers) {
+      if (auto *VFuncLoadInstr = dyn_cast<llvm::Instruction>(VFuncLoad)) {
+        VFuncLoadInstr->setMetadata(
+            llvm::LLVMContext::MD_invariant_load,
+            llvm::MDNode::get(CGM.getLLVMContext(),
+                              llvm::ArrayRef<llvm::Metadata *>()));
+      }
+    }
+    VFunc = VFuncLoad;
+  }
+
+  CGCallee Callee(GD, VFunc);
+  return Callee;
+}
+
+llvm::Constant *
+MacintoshCXXABI::getVTableAddressPoint(BaseSubobject Base,
+                                       const CXXRecordDecl *VTableClass) {
+  llvm::GlobalValue *VTable = getAddrOfVTable(VTableClass, CharUnits());
+
+  // Find the appropriate vtable within the vtable group, and the address point
+  // within that vtable.
+  VTableLayout::AddressPointLocation AddressPoint =
+      CGM.getItaniumVTableContext()
+          .getVTableLayout(VTableClass)
+          .getAddressPoint(Base);
+
+  llvm::Value *Indices[] = {
+    llvm::ConstantInt::get(CGM.Int32Ty, 0),
+    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint.VTableIndex),
+    llvm::ConstantInt::get(CGM.Int32Ty,
+                           AddressPoint.AddressPointIndex - 2),
+  };
+
+  return llvm::ConstantExpr::getGetElementPtr(VTable->getValueType(), VTable,
+                                              Indices, /*InBounds=*/true,
+                                              /*InRangeIndex=*/1);
+}
+
+void MacintoshCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
+                                                QualType &ResTy,
+                                                FunctionArgList &Params) {
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(CGF.CurGD.getDecl());
+  assert(isa<CXXConstructorDecl>(MD) || isa<CXXDestructorDecl>(MD));
+
+  // Check if we need a dtor parameter as well.
+  if (isa<CXXDestructorDecl>(MD)) {
+    ASTContext &Context = getContext();
+
+    QualType T = Context.IntTy;
+    auto *DtorTypeDecl = ImplicitParamDecl::Create(
+        Context, /*DC=*/nullptr, MD->getLocation(), &Context.Idents.get("int"),
+        T, ImplicitParamDecl::CXXVTT);
+    Params.insert(Params.begin() + 1, DtorTypeDecl);
+    getStructorImplicitParamDecl(CGF) = DtorTypeDecl;
+  }
+}
+
+CGCXXABI::AddedStructorArgCounts
+MacintoshCXXABI::buildStructorSignature(GlobalDecl GD,
+                                        SmallVectorImpl<CanQualType> &ArgTys) {
+  ASTContext &Context = getContext();
+
+  // All parameters are already in place except the dtor flag, which goes after 'this'.
+
+  // Check if we need to add a dtor parameter (which has type int).
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+  if (isa<CXXDestructorDecl>(MD)) {
+    ArgTys.insert(ArgTys.begin() + 1, Context.IntTy);
+    return AddedStructorArgCounts::prefix(1);
+  }
+  return AddedStructorArgCounts{};
+}
+
+void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *DD,
+                                         CXXDtorType Type, bool ForVirtualBase,
+                                         bool Delegating, Address This,
+                                         QualType ThisTy) {
+  GlobalDecl GD(DD, Type);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, DD, Type, ForVirtualBase, Delegating);
+  QualType DeletingTy = getContext().IntTy;
+
+  CGCallee Callee;
+  if (getContext().getLangOpts().AppleKext &&
+      Type != Dtor_Base && DD->isVirtual())
+    Callee = CGF.BuildAppleKextVirtualDestructorCall(DD, Type, DD->getParent());
+  else
+    Callee = CGCallee::forDirect(CGM.getAddrOfCXXStructor(GD), GD);
+  
+  CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
+                            DeletingTy, nullptr);
+}
+
+llvm::Value *MacintoshCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                                        const CXXDestructorDecl *Dtor,
+                                                        CXXDtorType DtorType,
+                                                        Address This,
+                                                        DeleteOrMemberCallExpr E) {
+  auto *CE = E.dyn_cast<const CXXMemberCallExpr *>();
+  auto *D = E.dyn_cast<const CXXDeleteExpr *>();
+  assert((CE != nullptr) ^ (D != nullptr));
+  assert(CE == nullptr || CE->arg_begin() == CE->arg_end());
+  assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
+
+  GlobalDecl GD(Dtor, DtorType);
+  llvm::Value *Deleting = getCXXDestructorImplicitParam(CGF, Dtor, DtorType, false, false);
+  QualType DeletingTy = getContext().IntTy;
+
+  const CGFunctionInfo *FInfo =
+      &CGM.getTypes().arrangeCXXStructorDeclaration(GD);
+  llvm::FunctionType *Ty = CGF.CGM.getTypes().GetFunctionType(*FInfo);
+  CGCallee Callee = CGCallee::forVirtual(CE, GD, This, Ty);
+  QualType ThisTy;
+  if (CE) {
+    ThisTy = CE->getObjectType();
+  } else {
+    ThisTy = D->getDestroyedType();
+  }
+  CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
+                            DeletingTy, nullptr);
+  return nullptr;
 }
