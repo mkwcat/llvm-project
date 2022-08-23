@@ -515,11 +515,11 @@ public:
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/false,
                       /*UseARMGuardVarABI=*/false) {}
 
-  CGCallee MacintoshCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
-                                                      GlobalDecl GD,
-                                                      Address This,
-                                                      llvm::Type *Ty,
-                                                      SourceLocation Loc);
+  CGCallee getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                     GlobalDecl GD,
+                                     Address This,
+                                     llvm::Type *Ty,
+                                     SourceLocation Loc);
 
   llvm::Constant *
   getVTableAddressPoint(BaseSubobject Base,
@@ -545,7 +545,7 @@ public:
     llvm::Function *Fn = CGM.codegenCXXStructor(GD);
     CGM.maybeSetTrivialComdat(*GD.getDecl(), *Fn);
   }
-  
+
   void EmitCXXConstructors(const CXXConstructorDecl *D) override {
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
   }
@@ -3641,7 +3641,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
     // The vtable address point is 8 bytes after its start:
     // 4 for the offset to top + 4 for the relative offset to rtti.
     llvm::Constant *Offset;
-    if (isCodeWarriorABI) 
+    if (isCodeWarriorABI)
       Offset = llvm::ConstantInt::get(CGM.Int32Ty, 0);
     else
       Offset = llvm::ConstantInt::get(CGM.Int32Ty, 8);
@@ -3650,7 +3650,7 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
         llvm::ConstantExpr::getInBoundsGetElementPtr(CGM.Int8Ty, VTable, Offset);
   } else {
     llvm::Constant *Offset;
-    if (isCodeWarriorABI) 
+    if (isCodeWarriorABI)
       Offset = llvm::ConstantInt::get(PtrDiffTy, 0);
     else
       Offset = llvm::ConstantInt::get(PtrDiffTy, 2);
@@ -4986,7 +4986,7 @@ void MacintoshCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
     Callee = CGF.BuildAppleKextVirtualDestructorCall(DD, Type, DD->getParent());
   else
     Callee = CGCallee::forDirect(CGM.getAddrOfCXXStructor(GD), GD);
-  
+
   CGF.EmitCXXDestructorCall(GD, Callee, This.getPointer(), ThisTy, Deleting,
                             DeletingTy, nullptr);
 }
