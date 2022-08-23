@@ -803,6 +803,11 @@ public:
            getSubArch() == Triple::AArch64SubArch_arm64e;
   }
 
+  bool isOSCodeWarrior() const {
+    return getArch() == Triple::ppc &&
+           getOS() == Triple::Kuribo;
+  }
+
   /// Tests whether the target supports comdat
   bool supportsCOMDAT() const {
     return !(isOSBinFormatMachO() || isOSBinFormatXCOFF());
