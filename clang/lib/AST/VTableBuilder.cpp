@@ -4708,8 +4708,8 @@ void CodeWarriorVtableBuilder::LayoutPrimaryAndSecondaryVTables(
   while (true) {
     if (!VTableIndices.empty()) {
       // No idea if this is valid or not
-      assert(VTableIndices.size() == 1 &&
-             "Cannot have multiple vtables in the same sub-object");
+      //assert(VTableIndices.size() == 1 &&
+      //       "Cannot have multiple vtables in the same sub-object");
       AddressPoints.insert(std::make_pair(
           BaseSubobject(RD, OffsetInLayoutClass),
           VTableLayout::AddressPointLocation{
