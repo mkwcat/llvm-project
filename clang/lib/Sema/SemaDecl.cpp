@@ -14580,7 +14580,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
       DiagnoseInvalidJumps(Body);
 
     if (CXXDestructorDecl *Destructor = dyn_cast<CXXDestructorDecl>(dcl)) {
-      if (!Destructor->getParent()->isDependentType() || Context.getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior)
+      if (!Destructor->getParent()->isDependentType())
         CheckDestructor(Destructor);
 
       MarkBaseAndMemberDestructorsReferenced(Destructor->getLocation(),
