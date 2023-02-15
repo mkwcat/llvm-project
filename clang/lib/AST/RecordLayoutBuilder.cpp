@@ -1480,7 +1480,11 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
           continue;
         }
       }
-      if (HasOwnVFPtr && !HasEmittedVtable) {
+
+      if (HasEmittedVtable)
+        continue;
+
+      if (HasOwnVFPtr) {
         const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
         if (MD && ItaniumVTableContext::hasVtableSlot(MD)) {
           {
@@ -1489,10 +1493,10 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
             CharUnits PtrAlign = Context.toCharUnitsFromBits(
                 Context.getTargetInfo().getPointerAlign(0));
             EnsureVTablePointerAlignment(PtrAlign);
-            HasOwnVFPtr = true;
 
             assert(!IsUnion && "Unions cannot be dynamic classes.");
-            
+
+            // As a primary base class, the vtable offset is determined by member declaration order
             VPtrOffset = getDataSize();
 
             setSize(getSize() + PtrWidth);
@@ -1501,6 +1505,9 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
           HasEmittedVtable = true;
           continue;
         }
+      } else if (PrimaryBase) {
+        VPtrOffset = Context.getASTRecordLayout(PrimaryBase).getVPtrOffset();
+        HasEmittedVtable = true;
       }
     }
   }
@@ -3296,7 +3303,7 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
       CharUnits NonVirtualSize =
           skipTailPadding ? DataSize : Builder.NonVirtualSize;
       CharUnits VPtrOffset = 
-        isCodeWarrior ? Builder.VPtrOffset : CharUnits::fromQuantity(-1);
+          isCodeWarrior ? Builder.VPtrOffset : CharUnits::fromQuantity(-1);
       NewEntry = new (*this) ASTRecordLayout(
           *this, Builder.getSize(), Builder.Alignment,
           Builder.PreferredAlignment, Builder.UnadjustedAlignment,
