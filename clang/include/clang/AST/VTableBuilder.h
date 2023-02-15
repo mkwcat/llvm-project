@@ -360,7 +360,7 @@ public:
 };
 
 class ItaniumVTableContext : public VTableContextBase {
-private:
+protected:
 
   /// Contains the index (relative to the vtable address point)
   /// where the function pointer for a virtual function is stored.
@@ -437,6 +437,16 @@ public:
 
 private:
   VTableComponentLayout ComponentLayout;
+};
+
+class CodeWarriorVTableContext : public ItaniumVTableContext {
+private:
+  void computeVTableRelatedInformation(const CXXRecordDecl *RD) override;
+
+public:
+  CodeWarriorVTableContext(ASTContext &Context,
+                           VTableComponentLayout ComponentLayout = Pointer);
+  ~CodeWarriorVTableContext() override;
 };
 
 /// Holds information about the inheritance path to a virtual base or function
