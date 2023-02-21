@@ -10862,7 +10862,10 @@ VTableContextBase *ASTContext::getVTableContext() {
       auto ComponentLayout = getLangOpts().RelativeCXXABIVTables
                                  ? ItaniumVTableContext::Relative
                                  : ItaniumVTableContext::Pointer;
-      VTContext.reset(new ItaniumVTableContext(*this, ComponentLayout));
+      if (Target->getCXXABI() == TargetCXXABI::CodeWarrior)
+        VTContext.reset(new CodeWarriorVTableContext(*this, ComponentLayout));
+      else
+        VTContext.reset(new ItaniumVTableContext(*this, ComponentLayout));
     }
   }
   return VTContext.get();

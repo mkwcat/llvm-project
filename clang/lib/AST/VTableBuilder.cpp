@@ -1062,9 +1062,6 @@ public:
   void dumpLayout(raw_ostream&);
 };
 
-
-
-
 /// CodeWarriorVTableBuilder - Class for building vtable layout information.
 class CodeWarriorVtableBuilder {
 public:
@@ -1603,9 +1600,7 @@ void ItaniumVTableBuilder::AddMethod(const CXXMethodDecl *MD,
     assert(ReturnAdjustment.isEmpty() &&
            "Destructor can't have return adjustment!");
 
-    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior)
-      // Add both the complete destructor and the deleting destructor.
-      Components.push_back(VTableComponent::MakeCompleteDtor(DD));
+    Components.push_back(VTableComponent::MakeCompleteDtor(DD));
     Components.push_back(VTableComponent::MakeDeletingDtor(DD));
   } else {
     // Add the return adjustment if necessary.
@@ -2610,7 +2605,6 @@ ItaniumVTableContext::getVirtualBaseOffsetOffset(const CXXRecordDecl *RD,
   return I->second;
 }
 
-
 static std::unique_ptr<VTableLayout>
 CreateVTableLayout(const CodeWarriorVtableBuilder &Builder) {
   SmallVector<VTableLayout::VTableThunkTy, 1>
@@ -2638,66 +2632,34 @@ ItaniumVTableContext::computeVTableRelatedInformation(const CXXRecordDecl *RD) {
   // Check if we've computed this information before.
   if (Entry)
     return;
-  if (RD->getASTContext().getTargetInfo().getCXXABI() ==
-      TargetCXXABI::CodeWarrior) {
-    CodeWarriorVtableBuilder Builder(*this, RD, CharUnits::Zero(),
-                                 /*MostDerivedClassIsVirtual=*/0, RD);
-    Entry = CreateVTableLayout(Builder);
 
-    MethodVTableIndices.insert(Builder.vtable_indices_begin(),
-                               Builder.vtable_indices_end());
+  ItaniumVTableBuilder Builder(*this, RD, CharUnits::Zero(),
+                               /*MostDerivedClassIsVirtual=*/0, RD);
+  Entry = CreateVTableLayout(Builder);
 
-    // Add the known thunks.
-    Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
+  MethodVTableIndices.insert(Builder.vtable_indices_begin(),
+                             Builder.vtable_indices_end());
 
-    // If we don't have the vbase information for this class, insert it.
-    // getVirtualBaseOffsetOffset will compute it separately without computing
-    // the rest of the vtable related information.
-    if (!RD->getNumVBases())
-      return;
+  // Add the known thunks.
+  Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
 
-    const CXXRecordDecl *VBase =
-        RD->vbases_begin()->getType()->getAsCXXRecordDecl();
+  // If we don't have the vbase information for this class, insert it.
+  // getVirtualBaseOffsetOffset will compute it separately without computing
+  // the rest of the vtable related information.
+  if (!RD->getNumVBases())
+    return;
 
-    if (VirtualBaseClassOffsetOffsets.count(std::make_pair(RD, VBase)))
-      return;
+  const CXXRecordDecl *VBase =
+      RD->vbases_begin()->getType()->getAsCXXRecordDecl();
 
-    for (const auto &I : Builder.getVBaseOffsetOffsets()) {
-      // Insert all types.
-      ClassPairTy ClassPair(RD, I.first);
+  if (VirtualBaseClassOffsetOffsets.count(std::make_pair(RD, VBase)))
+    return;
 
-      VirtualBaseClassOffsetOffsets.insert(std::make_pair(ClassPair, I.second));
-    }
-  } else {
+  for (const auto &I : Builder.getVBaseOffsetOffsets()) {
+    // Insert all types.
+    ClassPairTy ClassPair(RD, I.first);
 
-    ItaniumVTableBuilder Builder(*this, RD, CharUnits::Zero(),
-                                 /*MostDerivedClassIsVirtual=*/0, RD);
-    Entry = CreateVTableLayout(Builder);
-
-    MethodVTableIndices.insert(Builder.vtable_indices_begin(),
-                               Builder.vtable_indices_end());
-
-    // Add the known thunks.
-    Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
-
-    // If we don't have the vbase information for this class, insert it.
-    // getVirtualBaseOffsetOffset will compute it separately without computing
-    // the rest of the vtable related information.
-    if (!RD->getNumVBases())
-      return;
-
-    const CXXRecordDecl *VBase =
-        RD->vbases_begin()->getType()->getAsCXXRecordDecl();
-
-    if (VirtualBaseClassOffsetOffsets.count(std::make_pair(RD, VBase)))
-      return;
-
-    for (const auto &I : Builder.getVBaseOffsetOffsets()) {
-      // Insert all types.
-      ClassPairTy ClassPair(RD, I.first);
-
-      VirtualBaseClassOffsetOffsets.insert(std::make_pair(ClassPair, I.second));
-    }
+    VirtualBaseClassOffsetOffsets.insert(std::make_pair(ClassPair, I.second));
   }
 }
 
@@ -2708,6 +2670,51 @@ ItaniumVTableContext::createConstructionVTableLayout(
   ItaniumVTableBuilder Builder(*this, MostDerivedClass, MostDerivedClassOffset,
                                MostDerivedClassIsVirtual, LayoutClass);
   return CreateVTableLayout(Builder);
+}
+
+CodeWarriorVTableContext::CodeWarriorVTableContext(
+    ASTContext &Context, VTableComponentLayout ComponentLayout)
+    : ItaniumVTableContext(Context, ComponentLayout) {}
+
+CodeWarriorVTableContext::~CodeWarriorVTableContext() {}
+
+void
+CodeWarriorVTableContext::computeVTableRelatedInformation(
+    const CXXRecordDecl *RD) {
+  std::unique_ptr<const VTableLayout> &Entry = VTableLayouts[RD];
+
+  // Check if we've computed this information before.
+  if (Entry)
+    return;
+
+  CodeWarriorVtableBuilder Builder(*this, RD, CharUnits::Zero(),
+                                   /*MostDerivedClassIsVirtual=*/0, RD);
+  Entry = CreateVTableLayout(Builder);
+
+  MethodVTableIndices.insert(Builder.vtable_indices_begin(),
+                             Builder.vtable_indices_end());
+
+  // Add the known thunks.
+  Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
+
+  // If we don't have the vbase information for this class, insert it.
+  // getVirtualBaseOffsetOffset will compute it separately without computing
+  // the rest of the vtable related information.
+  if (!RD->getNumVBases())
+    return;
+
+  const CXXRecordDecl *VBase =
+      RD->vbases_begin()->getType()->getAsCXXRecordDecl();
+
+  if (VirtualBaseClassOffsetOffsets.count(std::make_pair(RD, VBase)))
+    return;
+
+  for (const auto &I : Builder.getVBaseOffsetOffsets()) {
+    // Insert all types.
+    ClassPairTy ClassPair(RD, I.first);
+
+    VirtualBaseClassOffsetOffsets.insert(std::make_pair(ClassPair, I.second));
+  }
 }
 
 namespace {

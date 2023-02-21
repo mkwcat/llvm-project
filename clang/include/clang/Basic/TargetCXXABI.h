@@ -33,12 +33,13 @@ public:
     ///   http://www.codesourcery.com/public/cxx-abi/
     GenericItanium,
         
-    /// The generic Itanium ABI is the standard ABI of most open-source
-    /// and Unix-like platforms.  It is the primary ABI targeted by
-    /// many compilers, including Clang and GCC.
+    /// The legacy Macintosh ABI as specialized by the toolchain CodeWarrior.
+    /// This is utilized for older Nintendo games targeted for the GameCube and Wii.
     ///
-    /// It is documented here:
-    ///   http://www.codesourcery.com/public/cxx-abi/
+    /// Differences from the Itanium ABI include:
+    ///   - declaration order dependant object VTable offsets
+    ///   - non-variant constructors and multi-purpose destructors
+    ///   - specialized symbol mangling
     CodeWarrior,
     /// The generic ARM ABI is a modified version of the Itanium ABI
     /// proposed by ARM for use on ARM-based platforms.
