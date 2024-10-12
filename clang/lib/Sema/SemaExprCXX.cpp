@@ -3279,7 +3279,6 @@ FunctionDecl *Sema::FindDeallocationFunctionForDestructor(SourceLocation Loc,
     return nullptr;
   if (OperatorDelete)
     return OperatorDelete;
-
   // If there's no class-specific operator delete, look up the global
   // non-array delete.
   return FindUsualDeallocationFunction(

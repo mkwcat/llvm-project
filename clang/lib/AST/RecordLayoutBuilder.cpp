@@ -659,6 +659,9 @@ protected:
   /// out is virtual.
   bool PrimaryBaseIsVirtual;
 
+  /// Offset to the virtual table pointer (if one exists).
+  CharUnits VPtrOffset;
+
   /// HasOwnVFPtr - Whether the class provides its own vtable/vftbl
   /// pointer, as opposed to inheriting one from a primary base class.
   bool HasOwnVFPtr;
@@ -1065,19 +1068,24 @@ void ItaniumRecordLayoutBuilder::LayoutNonVirtualBases(
   // If this class needs a vtable/vf-table and didn't get one from a
   // primary base, add it in now.
   } else if (RD->isDynamicClass()) {
-    assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
-    CharUnits PtrWidth = Context.toCharUnitsFromBits(
-        Context.getTargetInfo().getPointerWidth(LangAS::Default));
-    CharUnits PtrAlign = Context.toCharUnitsFromBits(
-        Context.getTargetInfo().getPointerAlign(LangAS::Default));
-    EnsureVTablePointerAlignment(PtrAlign);
     HasOwnVFPtr = true;
+    // The Macintosh ABI's placement of virtual tables is not always at the start of a struct/class,
+    // but at the declaration of the first virtual member function, thus in this case we defer
+    // setting the placement until later where we know the order of declarations.
+    if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
+      assert(DataSize == 0 && "Vtable pointer must be at offset zero!");
+      CharUnits PtrWidth =
+        Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
+      CharUnits PtrAlign =
+        Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerAlign(0));
+      EnsureVTablePointerAlignment(PtrAlign);
 
-    assert(!IsUnion && "Unions cannot be dynamic classes.");
-    HandledFirstNonOverlappingEmptyField = true;
+      assert(!IsUnion && "Unions cannot be dynamic classes.");
+      HandledFirstNonOverlappingEmptyField = true;
 
-    setSize(getSize() + PtrWidth);
-    setDataSize(getSize());
+      setSize(getSize() + PtrWidth);
+      setDataSize(getSize());
+    }
   }
 
   // Now lay out the non-virtual bases.
@@ -1455,11 +1463,62 @@ void ItaniumRecordLayoutBuilder::LayoutFields(const RecordDecl *D) {
   // the future, this will need to be tweakable by targets.
   bool InsertExtraPadding = D->mayInsertExtraPadding(/*EmitRemark=*/true);
   bool HasFlexibleArrayMember = D->hasFlexibleArrayMember();
-  for (auto I = D->field_begin(), End = D->field_end(); I != End; ++I) {
-    auto Next(I);
-    ++Next;
-    LayoutField(*I,
-                InsertExtraPadding && (Next != End || !HasFlexibleArrayMember));
+  if (Context.getTargetInfo().getCXXABI() != TargetCXXABI::CodeWarrior) {
+    for (auto I = D->field_begin(), End = D->field_end(); I != End; ++I) {
+      auto Next(I);
+      ++Next;
+      LayoutField(*I, InsertExtraPadding &&
+                          (Next != End || !HasFlexibleArrayMember));
+    }
+  } else {
+    bool HasEmittedVtable = false;
+    for (auto I = D->decls_begin(), End = D->decls_end(); I != End; ++I) {
+      auto Next(I);
+
+      // Careful, the decls range isn't filtered to instances of FieldDecl,
+      // like the path above.
+      do {
+        ++Next;
+      } while (Next != End && !isa<FieldDecl>(*Next));
+
+      {
+        const FieldDecl *FD = dyn_cast<FieldDecl>(*I);
+        if (FD) {
+          LayoutField(FD, InsertExtraPadding &&
+                              (Next != End || !HasFlexibleArrayMember));
+          continue;
+        }
+      }
+
+      if (HasEmittedVtable)
+        continue;
+
+      if (HasOwnVFPtr) {
+        const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
+        if (MD && ItaniumVTableContext::hasVtableSlot(MD)) {
+          {
+            CharUnits PtrWidth = Context.toCharUnitsFromBits(
+                Context.getTargetInfo().getPointerWidth(0));
+            CharUnits PtrAlign = Context.toCharUnitsFromBits(
+                Context.getTargetInfo().getPointerAlign(0));
+            EnsureVTablePointerAlignment(PtrAlign);
+
+            assert(!IsUnion && "Unions cannot be dynamic classes.");
+
+            // As a primary base class, the vtable offset is determined by member declaration order
+            VPtrOffset = getDataSize();
+
+            setSize(getSize() + PtrWidth);
+            setDataSize(getSize());
+          }
+          HasEmittedVtable = true;
+          continue;
+        }
+      } else if (PrimaryBase) {
+        VPtrOffset = Context.getASTRecordLayout(PrimaryBase).getVPtrOffset();
+        HasEmittedVtable = true;
+      }
+    }
   }
 }
 
@@ -3365,9 +3424,9 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
           *this, Builder.Size, Builder.Alignment, Builder.Alignment,
           Builder.Alignment, Builder.RequiredAlignment, Builder.HasOwnVFPtr,
           Builder.HasOwnVFPtr || Builder.PrimaryBase, Builder.VBPtrOffset,
-          Builder.DataSize, Builder.FieldOffsets, Builder.NonVirtualSize,
-          Builder.Alignment, Builder.Alignment, CharUnits::Zero(),
-          Builder.PrimaryBase, false, Builder.SharedVBPtrBase,
+          CharUnits::fromQuantity(-1), Builder.DataSize, Builder.FieldOffsets,
+          Builder.NonVirtualSize, Builder.Alignment, Builder.Alignment,
+          CharUnits::Zero(), Builder.PrimaryBase, false, Builder.SharedVBPtrBase,
           Builder.EndsWithZeroSizedObject, Builder.LeadsWithZeroSizedBase,
           Builder.Bases, Builder.VBases);
     } else {
@@ -3390,19 +3449,24 @@ ASTContext::getASTRecordLayout(const RecordDecl *D) const {
       bool skipTailPadding =
           mustSkipTailPadding(getTargetInfo().getCXXABI(), RD);
 
+      bool isCodeWarrior =
+          getTargetInfo().getCXXABI() == TargetCXXABI::CodeWarrior;
+
       // FIXME: This should be done in FinalizeLayout.
       CharUnits DataSize =
           skipTailPadding ? Builder.getSize() : Builder.getDataSize();
       CharUnits NonVirtualSize =
           skipTailPadding ? DataSize : Builder.NonVirtualSize;
+      CharUnits VPtrOffset = 
+          isCodeWarrior ? Builder.VPtrOffset : CharUnits::fromQuantity(-1);
       NewEntry = new (*this) ASTRecordLayout(
           *this, Builder.getSize(), Builder.Alignment,
           Builder.PreferredAlignment, Builder.UnadjustedAlignment,
           /*RequiredAlignment : used by MS-ABI)*/
           Builder.Alignment, Builder.HasOwnVFPtr, RD->isDynamicClass(),
-          CharUnits::fromQuantity(-1), DataSize, Builder.FieldOffsets,
-          NonVirtualSize, Builder.NonVirtualAlignment,
-          Builder.PreferredNVAlignment,
+          CharUnits::fromQuantity(-1), VPtrOffset,
+          DataSize, Builder.FieldOffsets, NonVirtualSize,
+          Builder.NonVirtualAlignment, Builder.PreferredNVAlignment,
           EmptySubobjects.SizeOfLargestEmptySubobject, Builder.PrimaryBase,
           Builder.PrimaryBaseIsVirtual, nullptr, false, false, Builder.Bases,
           Builder.VBases);
@@ -3624,17 +3688,20 @@ static void DumpRecordLayout(raw_ostream &OS, const RecordDecl *RD,
   OS << '\n';
 
   IndentLevel++;
-
+  
   // Dump bases.
+  bool DeferVTOffset = false;
   if (CXXRD) {
     const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
     bool HasOwnVFPtr = Layout.hasOwnVFPtr();
     bool HasOwnVBPtr = Layout.hasOwnVBPtr();
+    DeferVTOffset = Layout.getVPtrOffset() > CharUnits::Zero();
 
-    // Vtable pointer.
     if (CXXRD->isDynamicClass() && !PrimaryBase && !isMsLayout(C)) {
-      PrintOffset(OS, Offset, IndentLevel);
-      OS << '(' << *RD << " vtable pointer)\n";
+      if (!DeferVTOffset) {
+        PrintOffset(OS, Offset, IndentLevel);
+        OS << '(' << *RD << " vtable pointer)\n";
+      }
     } else if (HasOwnVFPtr) {
       PrintOffset(OS, Offset, IndentLevel);
       // vfptr (for Microsoft C++ ABI)
@@ -3674,29 +3741,71 @@ static void DumpRecordLayout(raw_ostream &OS, const RecordDecl *RD,
 
   // Dump fields.
   uint64_t FieldNo = 0;
-  for (RecordDecl::field_iterator I = RD->field_begin(),
-         E = RD->field_end(); I != E; ++I, ++FieldNo) {
-    const FieldDecl &Field = **I;
-    uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
-    CharUnits FieldOffset =
-      Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
+  if (!DeferVTOffset || !CXXRD->isDynamicClass()) {
+    for (RecordDecl::field_iterator I = RD->field_begin(),
+          E = RD->field_end(); I != E; ++I, ++FieldNo) {
+      const FieldDecl &Field = **I;
+      uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
+      CharUnits FieldOffset =
+        Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
 
-    // Recursively dump fields of record type.
-    if (auto RT = Field.getType()->getAs<RecordType>()) {
-      DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
-                       Field.getName().data(),
-                       /*PrintSizeInfo=*/false,
-                       /*IncludeVirtualBases=*/true);
-      continue;
+      // Recursively dump fields of record type.
+      if (auto RT = Field.getType()->getAs<RecordType>()) {
+        DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
+                        Field.getName().data(),
+                        /*PrintSizeInfo=*/false,
+                        /*IncludeVirtualBases=*/true);
+        continue;
+      }
+
+      if (Field.isBitField()) {
+        uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
+        unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
+        unsigned Width = Field.getBitWidthValue(C);
+        PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
+      } else {
+        PrintOffset(OS, FieldOffset, IndentLevel);
+      }
+      OS << Field.getType().getAsString() << ' ' << Field << '\n';
     }
+  } else {
+    bool VtableVisited = false;
+    for (RecordDecl::decl_iterator I = RD->decls_begin(),
+          E = RD->decls_end(); I != E; ++I) {
+      const FieldDecl *Field = dyn_cast<FieldDecl>(*I);
+      if (Field) {
+        uint64_t LocalFieldOffsetInBits = Layout.getFieldOffset(FieldNo);
+        CharUnits FieldOffset =
+          Offset + C.toCharUnitsFromBits(LocalFieldOffsetInBits);
 
-    if (Field.isBitField()) {
-      uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
-      unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
-      unsigned Width = Field.getBitWidthValue(C);
-      PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
-    } else {
-      PrintOffset(OS, FieldOffset, IndentLevel);
+        // Recursively dump fields of record type.
+        if (auto RT = Field->getType()->getAs<RecordType>()) {
+          DumpRecordLayout(OS, RT->getDecl(), C, FieldOffset, IndentLevel,
+                          Field->getName().data(),
+                          /*PrintSizeInfo=*/false,
+                          /*IncludeVirtualBases=*/true);
+          continue;
+        }
+
+        if (Field->isBitField()) {
+          uint64_t LocalFieldByteOffsetInBits = C.toBits(FieldOffset - Offset);
+          unsigned Begin = LocalFieldOffsetInBits - LocalFieldByteOffsetInBits;
+          unsigned Width = Field->getBitWidthValue(C);
+          PrintBitFieldOffset(OS, FieldOffset, Begin, Width, IndentLevel);
+        } else {
+          PrintOffset(OS, FieldOffset, IndentLevel);
+        }
+        OS << Field->getType().getAsString() << ' ' << *Field << '\n';
+        ++FieldNo;
+      }
+      const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(*I);
+      if (!VtableVisited && MD && ItaniumVTableContext::hasVtableSlot(MD)) {
+        if (!Layout.getPrimaryBase() && !isMsLayout(C)) {
+          PrintOffset(OS, Offset + Layout.getVPtrOffset(), IndentLevel);
+          OS << '(' << *RD << " vtable pointer)\n";
+        }
+        VtableVisited = true;
+      }
     }
     const QualType &FieldType = C.getLangOpts().DumpRecordLayoutsCanonical
                                     ? Field.getType().getCanonicalType()

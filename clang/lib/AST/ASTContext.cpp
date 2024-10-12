@@ -827,6 +827,7 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
 
   switch (getCXXABIKind()) {
   case TargetCXXABI::AppleARM64:
+  case TargetCXXABI::CodeWarrior:
   case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericARM: // Same as Itanium at this level
   case TargetCXXABI::iOS:
@@ -12501,7 +12502,10 @@ VTableContextBase *ASTContext::getVTableContext() {
       auto ComponentLayout = getLangOpts().RelativeCXXABIVTables
                                  ? ItaniumVTableContext::Relative
                                  : ItaniumVTableContext::Pointer;
-      VTContext.reset(new ItaniumVTableContext(*this, ComponentLayout));
+      if (Target->getCXXABI() == TargetCXXABI::CodeWarrior)
+        VTContext.reset(new CodeWarriorVTableContext(*this, ComponentLayout));
+      else
+        VTContext.reset(new ItaniumVTableContext(*this, ComponentLayout));
     }
   }
   return VTContext.get();
@@ -12524,6 +12528,8 @@ MangleContext *ASTContext::createMangleContext(const TargetInfo *T) {
     return ItaniumMangleContext::create(*this, getDiagnostics());
   case TargetCXXABI::Microsoft:
     return MicrosoftMangleContext::create(*this, getDiagnostics());
+  case TargetCXXABI::CodeWarrior:
+    return MacintoshMangleContext::create(*this, getDiagnostics());
   }
   llvm_unreachable("Unsupported ABI");
 }

@@ -1377,6 +1377,28 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
     setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
   }
 
+  if (Subtarget.isCodeWarrior()) {
+    static const struct {
+      const RTLIB::Libcall Op;
+      const char * const Name;
+    } LibraryCalls[] = {
+        { RTLIB::SDIV_I64, "__div2i" },
+        { RTLIB::UDIV_I64, "__div2u" },
+        { RTLIB::FPTOSINT_F32_I64, "__cvt_dbl_usll" },
+        { RTLIB::FPTOSINT_F64_I64, "__cvt_dbl_usll" },
+        { RTLIB::FPTOUINT_F32_I64, "__cvt_dbl_usll" },
+        { RTLIB::FPTOUINT_F64_I64, "__cvt_dbl_usll" },
+        { RTLIB::SINTTOFP_I64_F32, "__cvt_sll_flt" },
+        { RTLIB::SINTTOFP_I64_F64, "__cvt_sll_dbl" },
+        { RTLIB::UINTTOFP_I64_F32, "__cvt_ull_flt" },
+        { RTLIB::UINTTOFP_I64_F64, "__cvt_ull_dbl" },
+    };
+
+    for (const auto &LC : LibraryCalls) {
+      setLibcallName(LC.Op, LC.Name);
+    }
+  }
+
   if (shouldInlineQuadwordAtomics())
     setMaxAtomicSizeInBitsSupported(128);
   else if (isPPC64)
@@ -7148,7 +7170,7 @@ static unsigned mapArgRegToOffsetAIX(unsigned Reg, const PPCFrameLowering *FL) {
 //
 //   Low Memory +--------------------------------------------+
 //   SP   +---> | Back chain                                 | ---+
-//        |     +--------------------------------------------+    |   
+//        |     +--------------------------------------------+    |
 //        |     | Saved Condition Register                   |    |
 //        |     +--------------------------------------------+    |
 //        |     | Saved Linkage Register                     |    |
@@ -8108,7 +8130,7 @@ SDValue PPCTargetLowering::LowerTRUNCATEVector(SDValue Op,
     return SDValue();
 
   SDValue N1 = Op.getOperand(0);
-  EVT SrcVT = N1.getValueType();  
+  EVT SrcVT = N1.getValueType();
   unsigned SrcSize = SrcVT.getSizeInBits();
   if (SrcSize > 256 || !isPowerOf2_32(SrcVT.getVectorNumElements()) ||
       !llvm::has_single_bit<uint32_t>(

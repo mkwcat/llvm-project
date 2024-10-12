@@ -58,8 +58,8 @@ static lto::Config createConfig() {
     c.MllvmArgs.emplace_back(C.str());
 
   // Always emit a section per function/datum with LTO.
-  c.Options.FunctionSections = true;
-  c.Options.DataSections = true;
+  c.Options.FunctionSections = false;
+  c.Options.DataSections = false;
 
   c.Options.BBAddrMap = config->ltoBBAddrMap;
 

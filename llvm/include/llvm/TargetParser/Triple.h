@@ -205,6 +205,7 @@ public:
     Fuchsia,
     IOS,
     KFreeBSD,
+    Kuribo,
     Linux,
     Lv2, // PS3
     MacOSX,
@@ -1044,6 +1045,11 @@ public:
   /// Tests whether the target is eBPF.
   bool isBPF() const {
     return getArch() == Triple::bpfel || getArch() == Triple::bpfeb;
+  }
+
+  bool isOSCodeWarrior() const {
+    return getArch() == Triple::ppc &&
+           getOS() == Triple::Kuribo;
   }
 
   /// Tests whether the target supports comdat

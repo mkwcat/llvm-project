@@ -469,6 +469,16 @@ private:
   VTableComponentLayout ComponentLayout;
 };
 
+class CodeWarriorVTableContext : public ItaniumVTableContext {
+private:
+  void computeVTableRelatedInformation(const CXXRecordDecl *RD) override;
+
+public:
+  CodeWarriorVTableContext(ASTContext &Context,
+                           VTableComponentLayout ComponentLayout = Pointer);
+  ~CodeWarriorVTableContext() override;
+};
+
 /// Holds information about the inheritance path to a virtual base or function
 /// table pointer.  A record may contain as many vfptrs or vbptrs as there are
 /// base subobjects.

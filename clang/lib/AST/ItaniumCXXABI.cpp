@@ -39,10 +39,11 @@ namespace {
 /// the anonymous union.
 /// If there is no such data member (i.e., if all of the data members
 /// in the union are unnamed), then there is no way for a program to
-/// refer to the anonymous union, and there is therefore no need to mangle its name.
+/// refer to the anonymous union, and there is therefore no need to mangle its
+/// name.
 ///
 /// Returns the name of anonymous union VarDecl or nullptr if it is not found.
-static const IdentifierInfo *findAnonymousUnionVarDeclName(const VarDecl& VD) {
+static const IdentifierInfo *findAnonymousUnionVarDeclName(const VarDecl &VD) {
   const RecordType *RT = VD.getType()->getAs<RecordType>();
   assert(RT && "type of VarDecl is expected to be RecordType.");
   assert(RT->getDecl()->isUnion() && "RecordType is expected to be a union.");
@@ -55,7 +56,7 @@ static const IdentifierInfo *findAnonymousUnionVarDeclName(const VarDecl& VD) {
 
 /// The name of a decomposition declaration.
 struct DecompositionDeclName {
-  using BindingArray = ArrayRef<const BindingDecl*>;
+  using BindingArray = ArrayRef<const BindingDecl *>;
 
   /// Representative example of a set of bindings with these names.
   BindingArray Bindings;
@@ -73,14 +74,14 @@ struct DecompositionDeclName {
   Iterator begin() const { return Iterator(Bindings.begin()); }
   Iterator end() const { return Iterator(Bindings.end()); }
 };
-}
+} // namespace
 
 namespace llvm {
-template<typename T> bool isDenseMapKeyEmpty(T V) {
-  return llvm::DenseMapInfo<T>::isEqual(
-      V, llvm::DenseMapInfo<T>::getEmptyKey());
+template <typename T> bool isDenseMapKeyEmpty(T V) {
+  return llvm::DenseMapInfo<T>::isEqual(V,
+                                        llvm::DenseMapInfo<T>::getEmptyKey());
 }
-template<typename T> bool isDenseMapKeyTombstone(T V) {
+template <typename T> bool isDenseMapKeyTombstone(T V) {
   return llvm::DenseMapInfo<T>::isEqual(
       V, llvm::DenseMapInfo<T>::getTombstoneKey());
 }
@@ -100,9 +101,8 @@ std::optional<bool> areDenseMapKeysEqualSpecialValues(T LHS, T RHS) {
   return std::nullopt;
 }
 
-template<>
-struct DenseMapInfo<DecompositionDeclName> {
-  using ArrayInfo = llvm::DenseMapInfo<ArrayRef<const BindingDecl*>>;
+template <> struct DenseMapInfo<DecompositionDeclName> {
+  using ArrayInfo = llvm::DenseMapInfo<ArrayRef<const BindingDecl *>>;
   static DecompositionDeclName getEmptyKey() {
     return {ArrayInfo::getEmptyKey()};
   }
@@ -122,7 +122,7 @@ struct DenseMapInfo<DecompositionDeclName> {
            std::equal(LHS.begin(), LHS.end(), RHS.begin());
   }
 };
-}
+} // namespace llvm
 
 namespace {
 
@@ -157,9 +157,7 @@ public:
     return ++BlockManglingNumber;
   }
 
-  unsigned getStaticLocalNumber(const VarDecl *VD) override {
-    return 0;
-  }
+  unsigned getStaticLocalNumber(const VarDecl *VD) override { return 0; }
 
   /// Variable decls are numbered by identifier.
   unsigned getManglingNumber(const VarDecl *VD, unsigned) override {
@@ -216,11 +214,16 @@ public:
 class ItaniumCXXABI : public CXXABI {
 private:
   std::unique_ptr<MangleContext> Mangler;
+
 protected:
   ASTContext &Context;
+  bool UseMacintoshABIMemPtr;
+
 public:
   ItaniumCXXABI(ASTContext &Ctx)
-      : Mangler(Ctx.createMangleContext()), Context(Ctx) {}
+      : Mangler(Ctx.createMangleContext()), Context(Ctx),
+        UseMacintoshABIMemPtr(Ctx.getTargetInfo().getCXXABI().getKind() ==
+                              TargetCXXABI::CodeWarrior) {}
 
   MemberPointerInfo
   getMemberPointerInfo(const MemberPointerType *MPT) const override {
@@ -231,7 +234,7 @@ public:
     MPI.Align = Target.getTypeAlign(PtrDiff);
     MPI.HasPadding = false;
     if (MPT->isMemberFunctionPointer())
-      MPI.Width *= 2;
+      MPI.Width *= UseMacintoshABIMemPtr ? 3 : 2;
     return MPI;
   }
 
@@ -288,7 +291,7 @@ public:
         cast<ItaniumMangleContext>(Mangler.get()));
   }
 };
-}
+} // namespace
 
 CXXABI *clang::CreateItaniumCXXABI(ASTContext &Ctx) {
   return new ItaniumCXXABI(Ctx);
