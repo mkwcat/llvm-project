@@ -12559,6 +12559,8 @@ MangleContext *ASTContext::createDeviceMangleContext(const TargetInfo &T) {
   case TargetCXXABI::Microsoft:
     return MicrosoftMangleContext::create(*this, getDiagnostics(),
                                           /*IsAux=*/true);
+  case TargetCXXABI::CodeWarrior:
+    return MacintoshMangleContext::create(*this, getDiagnostics());
   }
   llvm_unreachable("Unsupported ABI");
 }

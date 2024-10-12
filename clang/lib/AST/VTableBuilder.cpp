@@ -4406,7 +4406,7 @@ ThisAdjustment CodeWarriorVtableBuilder::ComputeThisAdjustment(
     const CXXMethodDecl *MD, CharUnits BaseOffsetInLayoutClass,
     FinalOverriders::OverriderInfo Overrider) {
   // Ignore adjustments for pure virtual member functions.
-  if (Overrider.Method->isPure())
+  if (Overrider.Method->isPureVirtual())
     return ThisAdjustment();
 
   BaseSubobject OverriddenBaseSubobject(MD->getParent(),
@@ -4642,7 +4642,8 @@ void CodeWarriorVtableBuilder::AddMethods(
 
             // This is a virtual thunk for the most derived class, add it.
             AddThunk(Overrider.Method,
-                     ThunkInfo(ThisAdjustment, ReturnAdjustment));
+                     ThunkInfo(ThisAdjustment, ReturnAdjustment,
+                               OverriddenMD->getThisType().getTypePtr()));
           }
         }
 
@@ -4705,7 +4706,7 @@ void CodeWarriorVtableBuilder::AddMethods(
     // Check if this overrider needs a return adjustment.
     // We don't want to do this for pure virtual member functions.
     BaseOffset ReturnAdjustmentOffset;
-    if (!OverriderMD->isPure()) {
+    if (!OverriderMD->isPureVirtual()) {
       ReturnAdjustmentOffset =
         ComputeReturnAdjustmentBaseOffset(Context, OverriderMD, MD);
     }
@@ -5056,10 +5057,10 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
       const CXXMethodDecl *MD = Component.getFunctionDecl();
 
       std::string Str =
-        PredefinedExpr::ComputeName(PredefinedExpr::PrettyFunctionNoVirtual,
+        PredefinedExpr::ComputeName(PredefinedIdentKind::PrettyFunctionNoVirtual,
                                     MD);
       Out << Str;
-      if (MD->isPure())
+      if (MD->isPureVirtual())
         Out << " [pure]";
 
       if (MD->isDeleted())
@@ -5110,7 +5111,7 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
       else
         Out << "() [deleting]";
 
-      if (DD->isPure())
+      if (DD->isPureVirtual())
         Out << " [pure]";
 
       ThunkInfo Thunk = VTableThunks.lookup(I);
@@ -5136,10 +5137,10 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
       const CXXMethodDecl *MD = Component.getUnusedFunctionDecl();
 
       std::string Str =
-        PredefinedExpr::ComputeName(PredefinedExpr::PrettyFunctionNoVirtual,
+        PredefinedExpr::ComputeName(PredefinedIdentKind::PrettyFunctionNoVirtual,
                                     MD);
       Out << "[unused] " << Str;
-      if (MD->isPure())
+      if (MD->isPureVirtual())
         Out << " [pure]";
     }
 
@@ -5215,7 +5216,7 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
     for (const auto &I : Thunks) {
       const CXXMethodDecl *MD = I.first;
       std::string MethodName =
-        PredefinedExpr::ComputeName(PredefinedExpr::PrettyFunctionNoVirtual,
+        PredefinedExpr::ComputeName(PredefinedIdentKind::PrettyFunctionNoVirtual,
                                     MD);
 
       MethodNamesAndDecls.insert(std::make_pair(MethodName, MD));
@@ -5281,7 +5282,7 @@ void CodeWarriorVtableBuilder::dumpLayout(raw_ostream &Out) {
     MD = MD->getCanonicalDecl();
 
     std::string MethodName =
-      PredefinedExpr::ComputeName(PredefinedExpr::PrettyFunctionNoVirtual,
+      PredefinedExpr::ComputeName(PredefinedIdentKind::PrettyFunctionNoVirtual,
                                   MD);
 
     if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {

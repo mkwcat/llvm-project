@@ -365,7 +365,7 @@ public:
   typedef llvm::DenseMap<const CXXMethodDecl *, const CXXMethodDecl *>
       OriginalMethodMapTy;
 
-private:
+protected:
 
   /// Contains the index (relative to the vtable address point)
   /// where the function pointer for a virtual function is stored.
