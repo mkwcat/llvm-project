@@ -1720,6 +1720,7 @@ private:
   void EmitExternalVarDeclaration(const VarDecl *D);
   void EmitExternalFunctionDeclaration(const FunctionDecl *D);
   void EmitAliasDefinition(GlobalDecl GD);
+  bool EmitExternalAttrDefinition(GlobalDecl GD);
   void emitIFuncDefinition(GlobalDecl GD);
   void emitCPUDispatchDefinition(GlobalDecl GD);
   void EmitObjCPropertyImplementations(const ObjCImplementationDecl *D);

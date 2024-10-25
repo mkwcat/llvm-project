@@ -2525,6 +2525,18 @@ static void handleExternalSourceSymbolAttr(Sema &S, Decl *D,
       S.Context, AL, Language, DefinedIn, IsGeneratedDeclaration, USR));
 }
 
+static void handleExternalAttr(Sema &S, Decl *D,
+                               const ParsedAttr &AL) {
+  if (!AL.checkExactlyNumArgs(S, 1))
+    return;
+
+  StringRef Address;
+  if (const auto *SE = dyn_cast_if_present<StringLiteral>(AL.getArgAsExpr(0)))
+    Address = SE->getString();
+
+  D->addAttr(::new (S.Context) ExternalAttr(S.Context, AL, Address));
+}
+
 template <class T>
 static T *mergeVisibilityAttr(Sema &S, Decl *D, const AttributeCommonInfo &CI,
                               typename T::VisibilityType value) {
@@ -6504,6 +6516,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_ExternalSourceSymbol:
     handleExternalSourceSymbolAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_External:
+    handleExternalAttr(S, D, AL);
     break;
   case ParsedAttr::AT_MinSize:
     handleMinSizeAttr(S, D, AL);
